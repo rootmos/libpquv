@@ -8,7 +8,7 @@
 #include <string.h>
 
 typedef struct req_ts {
-    const char* q;
+    char* q;
     void* opaque;
     req_cb cb;
     struct req_ts* next;
@@ -30,7 +30,11 @@ req_t* dequeue(queue_t* queue)
 {
     if (queue->head == NULL)
         return NULL;
-    panic("not implemented\n");
+
+    req_t* t = queue->head;
+    queue->head = t->next;
+    t->next = NULL;
+    return t;
 }
 
 static void maybe_send_req(pquv_t* pquv)
@@ -38,33 +42,18 @@ static void maybe_send_req(pquv_t* pquv)
     if(pquv->live != NULL)
         return;
 
+    assert(PQstatus(pquv->conn) != CONNECTION_BAD);
+
     req_t* r = dequeue(&pquv->queue);
     if(r == NULL)
         return;
 
-    panic("not implemented\n");
-}
+    if(!PQsendQuery(pquv->conn, r->q))
+        panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
 
-static void poll_cb(uv_poll_t* handle, int status, int events)
-{
-    pquv_t* pquv = container_of(handle, pquv_t, poll);
-    switch(events) {
-    case UV_WRITABLE:
-        {
-            int r = PQflush(pquv->conn);
-            if (r < 0) {
-                panic("PQflush failed");
-            } else if (r == 0) {
-                maybe_send_req(pquv);
-            }
-            return;
-        }
-    case UV_READABLE:
-        panic("not implemented\n");
-    default:
-        /* not interested */
-        return;
-    }
+    assert(PQflush(pquv->conn) >= 0);
+
+    pquv->live = r;
 }
 
 void pquv_query(pquv_t* pquv, const char* q, req_cb cb, void* opaque)
@@ -85,6 +74,81 @@ void pquv_query(pquv_t* pquv, const char* q, req_cb cb, void* opaque)
     }
 }
 
+static void free_req(req_t* r) {
+    free(r->q);
+    free(r);
+}
+
+static void poll_cb(uv_poll_t* handle, int status, int events)
+{
+    assert(status >= 0);
+
+    pquv_t* pquv = container_of(handle, pquv_t, poll);
+    if (events & UV_WRITABLE) {
+        int r = PQflush(pquv->conn);
+        if (r < 0) {
+            panic("PQflush failed");
+        } else if (r == 0) {
+            maybe_send_req(pquv);
+        }
+    }
+
+    if (events & UV_READABLE) {
+        if(!PQconsumeInput(pquv->conn))
+            panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
+
+        if(!PQisBusy(pquv->conn)) {
+            assert(pquv->live);
+            PGresult* r = PQgetResult(pquv->conn);
+            pquv->live->cb(pquv->live->opaque, r);
+            free_req(pquv->live);
+            pquv->live = NULL;
+
+            /* TODO: handle more results */
+            assert(PQgetResult(pquv->conn) == NULL);
+        }
+    }
+
+    return;
+}
+
+static void poll_connection(pquv_t* pquv);
+
+static void connection_cb(uv_poll_t* handle, int status, int events)
+{
+    assert(status >= 0);
+    assert((events & ~(UV_READABLE | UV_WRITABLE)) == 0);
+    pquv_t* pquv = container_of(handle, pquv_t, poll);
+    poll_connection(pquv);
+}
+
+static void poll_connection(pquv_t* pquv)
+{
+    int events;
+    uv_poll_cb cb;
+
+    switch(PQconnectPoll(pquv->conn)) {
+    case PGRES_POLLING_READING:
+        events = UV_READABLE;
+        cb = connection_cb;
+        break;
+    case PGRES_POLLING_WRITING:
+        events = UV_WRITABLE;
+        cb = connection_cb;
+        break;
+    case PGRES_POLLING_OK:
+        events = UV_WRITABLE | UV_READABLE;
+        cb = poll_cb;
+        break;
+    default:
+        panic("PQconnectPoll unexpected status\n");
+    }
+
+    int r;
+    if((r = uv_poll_start(&pquv->poll, events, cb)) != 0)
+        panic("uv_poll_start: %s\n", uv_strerror(r));
+}
+
 pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
 {
     pquv_t* pquv = malloc(sizeof(pquv_t));
@@ -100,19 +164,32 @@ pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
     int fd = PQsocket(pquv->conn);
     assert(fd >= 0);
 
+    /* TODO: dup socket
+     * "The user should not close the socket while the handle is active."
+     * */
+
     int r;
     if((r = uv_poll_init(loop, &pquv->poll, fd)) != 0)
         panic("uv_poll_init: %s\n", uv_strerror(r));
 
-    if((r = uv_poll_start(&pquv->poll,
-                          UV_READABLE | UV_WRITABLE,
-                          poll_cb)) != 0)
-        panic("uv_poll_start: %s\n", uv_strerror(r));
+    poll_connection(pquv);
 
     return pquv;
 }
 
 void pquv_free(pquv_t* pquv)
 {
-    panic("not implemented\n");
+    assert(0 == uv_poll_stop(&pquv->poll));
+
+    PQfinish(pquv->conn);
+
+    if(pquv->live != NULL)
+        free_req(pquv->live);
+
+    req_t* r = pquv->queue.head;
+    while(r != NULL) {
+        req_t* n = r->next;
+        free_req(r);
+        r = n;
+    }
 }
