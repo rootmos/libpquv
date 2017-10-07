@@ -2,9 +2,9 @@
 #define common_h
 
 #include <assert.h>
+#include <stdlib.h>
 
 #include <postgresql/libpq-fe.h>
-
 
 #define panic(...) {                                            \
     fprintf(stderr, "%s:%d: ",                                  \
@@ -43,8 +43,10 @@
 }
 
 const char* conninfo();
+PGconn* connect_blk();
 
-#define TABLE_NAME_LENGTH 8
 void fresh_table(PGconn* conn, char* tbl, size_t n);
+
+#define fresh(t) char t[8]; fresh_table(conn, t, sizeof(t));
 
 #endif

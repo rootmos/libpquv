@@ -1,13 +1,13 @@
 #include "common.h"
 
+#include <string.h>
+
 void sanity_check()
 {
     test_start();
-    PGconn* conn = PQconnectdb(conninfo());
-    assert(conn);
+    PGconn* conn = connect_blk();
 
-    char tbl[10];
-    fresh_table(conn, tbl, sizeof(tbl));
+    fresh(tbl);
 
     /* randomize some data */
     some(key);

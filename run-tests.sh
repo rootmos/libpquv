@@ -28,4 +28,4 @@ psql --user=$USER --host=$PG_ADDR --port=$PG_PORT \
 
 export PG_CONNINFO="postgresql://$USER@$PG_ADDR:$PG_PORT/$DB"
 echo "url: $PG_CONNINFO"
-exec $DRIVER
+exec timeout ${TIMEOUT-2s} $DRIVER

@@ -3,4 +3,6 @@
 
 void sanity_check();
 
+void simple_read();
+
 #endif

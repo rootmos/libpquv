@@ -1,6 +1,7 @@
 #include "common.h"
 
 #include <stdlib.h>
+#include <assert.h>
 
 const char* conninfo()
 {
@@ -15,4 +16,11 @@ void fresh_table(PGconn* conn, char* tbl, size_t n)
 
     exec_and_expect_ok(
             "CREATE TABLE %s (id VARCHAR(40) PRIMARY KEY, blob TEXT)", tbl);
+}
+
+PGconn* connect_blk()
+{
+    PGconn* conn = PQconnectdb(conninfo());
+    assert(conn);
+    return conn;
 }
