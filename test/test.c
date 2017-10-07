@@ -1,7 +1,7 @@
-#include <pguv.h>
+#include <pquv.h>
 
 int main()
 {
-    pguv_init();
+    pquv_init();
     return 0;
 }
