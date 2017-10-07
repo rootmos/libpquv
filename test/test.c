@@ -14,10 +14,12 @@ void simple_read()
             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
             tbl, key, data);
 
-    pquv_init(conninfo(), uv_default_loop());
+    pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
 
     volatile bool running = true;
     while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
+
+    pquv_free(pquv);
 
     test_ok();
 }

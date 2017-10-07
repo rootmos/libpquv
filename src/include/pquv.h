@@ -4,6 +4,10 @@
 #include <uv.h>
 #include <postgresql/libpq-fe.h>
 
-void pquv_init(const char* conninfo, uv_loop_t* loop);
+struct pquv_st;
+typedef struct pquv_st pquv_t;
+
+pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop);
+void pquv_free(pquv_t* pquv);
 
 #endif
