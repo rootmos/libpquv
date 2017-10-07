@@ -71,6 +71,7 @@ void pquv_query(pquv_t* pquv, const char* q, req_cb cb, void* opaque)
         assert(pquv->queue.tail);
         assert(pquv->queue.tail->next == NULL);
         pquv->queue.tail->next = r;
+        pquv->queue.tail = r;
     }
 }
 
