@@ -19,10 +19,10 @@
 
 #define some(x) char x[100]; snprintf(x, sizeof(x), #x "%.5u", rand() % 1000);
 
-#define exec_and_expect_ok(...)                                             \
+#define exec_and_expect_ok(conn, ...)                                       \
 {                                                                           \
-    char q[1024];                                            \
-    snprintf(q, 1024, __VA_ARGS__);                          \
+    char q[1024];                                                           \
+    snprintf(q, 1024, __VA_ARGS__);                                         \
     PGresult* r = PQexec(conn, q);                                          \
     if(PQresultStatus(r) != PGRES_COMMAND_OK) {                             \
         panic("error while executing %s:%s\n", q, PQresultErrorMessage(r)); \
@@ -30,10 +30,10 @@
     PQclear(r);                                                             \
 }
 
-#define exec_and_expect(e, ...)                                             \
+#define exec_and_expect(conn, e, ...)                                       \
 {                                                                           \
-    char q[1024];                                            \
-    snprintf(q, 1024, __VA_ARGS__);                          \
+    char q[1024];                                                           \
+    snprintf(q, 1024, __VA_ARGS__);                                         \
     PGresult* r = PQexec(conn, q);                                          \
     if(PQresultStatus(r) != PGRES_TUPLES_OK) {                              \
         panic("error while executing %s:%s\n", q, PQresultErrorMessage(r)); \

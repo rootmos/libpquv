@@ -28,7 +28,7 @@ void simple_read()
 
     some(key); some(data); fresh(tbl);
 
-    exec_and_expect_ok(
+    exec_and_expect_ok(conn,
             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
             tbl, key, data);
 
@@ -45,10 +45,8 @@ void simple_read()
     while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
 
     pquv_free(pquv);
-
     test_ok();
 }
-
 
 
 typedef struct {
@@ -86,7 +84,7 @@ void multiple_reads()
 
     some(key); some(data); fresh(tbl);
 
-    exec_and_expect_ok(
+    exec_and_expect_ok(conn,
             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
             tbl, key, data);
 
@@ -111,6 +109,62 @@ void multiple_reads()
     while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
 
     pquv_free(pquv);
+    test_ok();
+}
 
+
+typedef struct {
+    volatile bool* running;
+    PGconn* blk_conn;
+    const char* tbl;
+    const char* key;
+    const char* data;
+} simple_write_t;
+
+static void simple_write_cb(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_COMMAND_OK);
+
+    simple_write_t* t = (simple_write_t*)opaque;
+
+    exec_and_expect(t->blk_conn,
+            {
+                assert(PQntuples(r) == 1);
+                assert(strcmp(PQgetvalue(r, 0, 0), t->key) == 0);
+                assert(strcmp(PQgetvalue(r, 0, 1), t->data) == 0);
+            },
+            "SELECT id, blob FROM %s", t->tbl);
+
+    *t->running = false;
+    PQclear(r);
+}
+
+void simple_write()
+{
+    test_start();
+    PGconn* conn = connect_blk();
+
+    some(key); some(data); fresh(tbl);
+
+    pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
+
+    volatile bool running = true;
+    simple_write_t t = {
+        .running = &running,
+        .blk_conn = conn,
+        .tbl = tbl,
+        .key = key,
+        .data = data
+    };
+
+    char q[MAX_QUERY_LENGTH];
+    snprintf(q, MAX_QUERY_LENGTH,
+             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
+             tbl, key, data);
+    pquv_query(pquv, q, simple_write_cb, &t);
+
+    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
+
+    pquv_free(pquv);
     test_ok();
 }

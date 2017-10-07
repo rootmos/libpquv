@@ -5,5 +5,6 @@ void sanity_check();
 
 void simple_read();
 void multiple_reads();
+void simple_write();
 
 #endif
