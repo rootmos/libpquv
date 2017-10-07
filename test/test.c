@@ -17,7 +17,6 @@ static void simple_read_cb(void* opaque, PGresult* r)
     assert(strcmp(PQgetvalue(r, 0, 0), t->expected_data) == 0);
 
     *t->running = false;
-
     PQclear(r);
 }
 
@@ -162,6 +161,38 @@ void simple_write()
              "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
              tbl, key, data);
     pquv_query(pquv, q, simple_write_cb, &t);
+
+    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
+
+    pquv_free(pquv);
+    test_ok();
+}
+
+
+
+typedef struct {
+    volatile bool* running;
+} invalid_query_t;
+
+static void invalid_query_cb(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_FATAL_ERROR);
+    invalid_query_t* t = (invalid_query_t*)opaque;
+    *t->running = false;
+    PQclear(r);
+}
+
+void invalid_query()
+{
+    test_start();
+    pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
+
+    volatile bool running = true;
+    invalid_query_t t = { .running = &running, };
+
+    char q[MAX_QUERY_LENGTH];
+    snprintf(q, MAX_QUERY_LENGTH, "SELECT * FROM lol-table");
+    pquv_query(pquv, q, invalid_query_cb, &t);
 
     while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
 

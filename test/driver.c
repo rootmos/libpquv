@@ -10,5 +10,6 @@ int main()
     simple_read();
     multiple_reads();
     simple_write();
+    invalid_query();
     return 0;
 }
