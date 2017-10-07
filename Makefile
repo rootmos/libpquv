@@ -5,6 +5,10 @@ ROOT=$(PWD)
 build: $(BUILDDIR)
 	cd $(BUILDDIR) && cmake $(ROOT) && $(MAKE)
 
+.PHONY: debug
+debug: $(BUILDDIR)
+	cd $(BUILDDIR) && cmake -DCMAKE_BUILD_TYPE=Debug $(ROOT) && $(MAKE)
+
 .PHONY: test
 test:
 	./run-tests.sh
