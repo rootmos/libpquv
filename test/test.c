@@ -3,6 +3,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <string.h>
 
 #include <postgresql/libpq-fe.h>
 
@@ -33,15 +34,14 @@ static void fresh_table(PGconn* conn, char* tbl)
              tbl);
 
     PGresult* r = PQexec(conn, q);
-
-    ExecStatusType st = PQresultStatus(r);
-    if(st != PGRES_COMMAND_OK) {
-        panic("while creating table %s: %s, %s\n",
-              tbl, PQresStatus(st), PQresultErrorMessage(r));
+    if(PQresultStatus(r) != PGRES_COMMAND_OK) {
+        panic("while creating table : %s\n", PQresultErrorMessage(r));
     }
-
     PQclear(r);
 }
+
+
+#define some(x) char x[100]; snprintf(x, sizeof(x), #x "%.5u", rand() % 1000);
 
 static void sanity_check()
 {
@@ -51,6 +51,107 @@ static void sanity_check()
 
     char tbl[TABLE_NAME_LENGTH];
     fresh_table(conn, tbl);
+
+    /* randomize some data */
+
+    some(key);
+
+    some(data);
+
+    /* insert it */
+    char q[QUERY_BUFFER_LENGTH];
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
+             tbl, key, data);
+
+    PGresult* r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_COMMAND_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    PQclear(r);
+
+    /* fetch it */
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "SELECT blob FROM %s WHERE id = '%s'", tbl, key);
+
+    r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_TUPLES_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    assert(PQntuples(r) == 1);
+    assert(strcmp(PQgetvalue(r, 0, 0), data) == 0);
+    PQclear(r);
+
+    /* fetch some other key should not return anything */
+    some(other_key);
+
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "SELECT blob FROM %s WHERE id = '%s'", tbl, other_key);
+
+    r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_TUPLES_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    assert(PQntuples(r) == 0);
+    PQclear(r);
+
+    /* but after inserting some data for it */
+    some(other_data);
+
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
+             tbl, other_key, other_data);
+
+    r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_COMMAND_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    PQclear(r);
+
+    /* it should be there as well */
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "SELECT blob FROM %s WHERE id = '%s'", tbl, other_key);
+
+    r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_TUPLES_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    assert(PQntuples(r) == 1);
+    assert(strcmp(PQgetvalue(r, 0, 0), other_data) == 0);
+    PQclear(r);
+
+    /* after deleting the first value */
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "DELETE FROM %s WHERE id = '%s'", tbl, key);
+
+    r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_COMMAND_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    PQclear(r);
+
+    /* fetching it should return nothing */
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "SELECT blob FROM %s WHERE id = '%s'", tbl, key);
+
+    r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_TUPLES_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    assert(PQntuples(r) == 0);
+    PQclear(r);
+
+    /* but the other value should still be there  */
+    snprintf(q, QUERY_BUFFER_LENGTH,
+             "SELECT blob FROM %s WHERE id = '%s'", tbl, other_key);
+
+    r = PQexec(conn, q);
+    if(PQresultStatus(r) != PGRES_TUPLES_OK) {
+        panic("%s", PQresultErrorMessage(r));
+    }
+    assert(PQntuples(r) == 1);
+    assert(strcmp(PQgetvalue(r, 0, 0), other_data) == 0);
+    PQclear(r);
 
     PQfinish(conn);
     test_ok();
