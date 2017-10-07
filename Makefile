@@ -17,7 +17,7 @@ clean:
 .PHONY: compose
 compose:
 	docker-compose build
-	docker-compose run test
+	docker-compose run --rm test
 
 $(BUILDDIR):
 	mkdir $@
