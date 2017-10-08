@@ -6,6 +6,7 @@
 
 #include <assert.h> /* TODO: return proper failures */
 #include <string.h>
+#include <unistd.h>
 
 typedef struct req_ts {
     char* q;
@@ -17,13 +18,14 @@ typedef struct req_ts {
 typedef struct {
     req_t* head;
     req_t* tail;
-} queue_t; 
+} queue_t;
 
 struct pquv_st {
     uv_poll_t poll;
     PGconn* conn;
     req_t* live;
     queue_t queue;
+    int fd;
 };
 
 req_t* dequeue(queue_t* queue)
@@ -165,12 +167,31 @@ pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
     int fd = PQsocket(pquv->conn);
     assert(fd >= 0);
 
-    /* TODO: dup socket
-     * "The user should not close the socket while the handle is active."
-     * */
+    /*
+     * From libuv documentation:
+     * "The user should not close a file descriptor while it is being polled
+     * by an active poll handle."
+     * (http://docs.libuv.org/en/v1.x/poll.html)
+     *
+     * So: dup the fd so we can close it after we've called uv_poll_close
+     *
+     * From libpq documentation:
+     * "On Unix, forking a process with open libpq connections can lead to
+     * unpredictable results because the parent and child processes share the
+     * same sockets and operating system resources.
+     * (https://www.postgresql.org/docs/9.6/static/libpq-connect.html)
+     *
+     * So: make sure FD_CLOEXEC is set
+     *
+     * Note: this is also done internally in libpq, see:
+     * https://github.com/postgres/postgres/blob/0ba99c84e8c7138143059b281063d4cca5a2bfea/src/interfaces/libpq/fe-connect.c#L2140
+     */
+
+    pquv->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    assert(pquv->fd >= 0);
 
     int r;
-    if((r = uv_poll_init(loop, &pquv->poll, fd)) != 0)
+    if((r = uv_poll_init(loop, &pquv->poll, pquv->fd)) != 0)
         panic("uv_poll_init: %s\n", uv_strerror(r));
 
     poll_connection(pquv);
@@ -181,6 +202,7 @@ pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
 void pquv_free(pquv_t* pquv)
 {
     assert(0 == uv_poll_stop(&pquv->poll));
+    assert(0 == close(pquv->fd));
 
     PQfinish(pquv->conn);
 
