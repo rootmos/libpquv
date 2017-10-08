@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include <postgresql/libpq-fe.h>
 
@@ -14,8 +15,10 @@
 
 #define info(...) { fprintf(stdout, __VA_ARGS__); exit(1); }
 
-#define test_start() { printf("%s - starting\n", __extension__ __FUNCTION__); }
-#define test_ok() { printf("%s - ok\n", __extension__ __FUNCTION__); }
+#define test_start() \
+    volatile bool ok = false; \
+    printf("%s - starting\n", __extension__ __FUNCTION__);
+#define test_ok() { assert(ok); printf("%s - ok\n", __extension__ __FUNCTION__); }
 
 #define some(x) char x[100]; snprintf(x, sizeof(x), #x "%.5u", rand() % 1000);
 
@@ -48,5 +51,11 @@ PGconn* connect_blk();
 void fresh_table(PGconn* conn, char* tbl, size_t n);
 
 #define fresh(t) char t[8]; fresh_table(conn, t, sizeof(t));
+
+#define new_loop(l) uv_loop_t l; assert(uv_loop_init(&l) == 0);
+#define close_loop(l) { \
+    assert(uv_run(&l, UV_RUN_NOWAIT) == 0); \
+    assert(uv_loop_close(&l) == 0); \
+}
 
 #endif

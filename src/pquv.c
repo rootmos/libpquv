@@ -227,9 +227,10 @@ pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
     return pquv;
 }
 
-void pquv_free(pquv_t* pquv)
+static void pquv_free_cb(uv_handle_t* h)
 {
-    assert(0 == uv_poll_stop(&pquv->poll));
+    pquv_t* pquv = container_of(h, pquv_t, poll);
+
     assert(0 == close(pquv->fd));
 
     PQfinish(pquv->conn);
@@ -243,4 +244,12 @@ void pquv_free(pquv_t* pquv)
         free_req(r);
         r = n;
     }
+
+    free(pquv);
+}
+
+void pquv_free(pquv_t* pquv)
+{
+    assert(0 == uv_poll_stop(&pquv->poll));
+    uv_close((uv_handle_t*)&pquv->poll, pquv_free_cb);
 }

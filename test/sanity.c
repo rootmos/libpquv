@@ -60,6 +60,7 @@ void sanity_check()
             },
             "SELECT blob FROM %s WHERE id = '%s'", tbl, other_key);
 
+    ok = true;
     PQfinish(conn);
     test_ok();
 }

@@ -1,11 +1,10 @@
 #include "common.h"
 #include <uv.h>
-#include <stdbool.h>
 #include <pquv.h>
 #include <string.h>
 
 typedef struct {
-    volatile bool* running;
+    volatile bool* ok;
     const char* expected_data;
 } simple_read_t;
 
@@ -16,7 +15,7 @@ static void simple_read_cb(void* opaque, PGresult* r)
     assert(PQntuples(r) == 1);
     assert(strcmp(PQgetvalue(r, 0, 0), t->expected_data) == 0);
 
-    *t->running = false;
+    *t->ok = true;
     PQclear(r);
 }
 
@@ -31,26 +30,27 @@ void simple_read()
             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
             tbl, key, data);
 
-    pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
 
-    volatile bool running = true;
-    simple_read_t t = {.running = &running, .expected_data = data};
+    simple_read_t t = {.ok = &ok, .expected_data = data};
 
     char q[MAX_QUERY_LENGTH];
     snprintf(q, MAX_QUERY_LENGTH,
              "SELECT blob FROM %s WHERE id = '%s'", tbl, key);
     pquv_query(pquv, q, simple_read_cb, &t);
 
-    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
 
     pquv_free(pquv);
+    close_loop(loop);
     test_ok();
 }
 
 
 typedef struct {
     pquv_t* pquv;
-    volatile bool* running;
+    volatile bool* ok;
     const char* tbl;
     const char* expected_data;
     int reads;
@@ -70,7 +70,7 @@ static void multiple_reads_cb(void* opaque, PGresult* r)
         snprintf(q, MAX_QUERY_LENGTH, "SELECT blob FROM %s", t->tbl);
         pquv_query(t->pquv, q, multiple_reads_cb, t);
     } else {
-        *t->running = false;
+        *t->ok = true;
     }
 
     PQclear(r);
@@ -87,12 +87,12 @@ void multiple_reads()
             "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
             tbl, key, data);
 
-    pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
 
-    volatile bool running = true;
     multiple_reads_t t = {
         .pquv = pquv,
-        .running = &running,
+        .ok = &ok,
         .expected_data = data,
         .tbl = tbl,
         .reads = 0
@@ -105,15 +105,16 @@ void multiple_reads()
     for (int i = 0; i < 100; ++i)
         pquv_query(pquv, q, multiple_reads_cb, &t);
 
-    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
 
     pquv_free(pquv);
+    close_loop(loop);
     test_ok();
 }
 
 
 typedef struct {
-    volatile bool* running;
+    volatile bool* ok;
     PGconn* blk_conn;
     const char* tbl;
     const char* key;
@@ -134,7 +135,7 @@ static void simple_write_cb(void* opaque, PGresult* r)
             },
             "SELECT id, blob FROM %s", t->tbl);
 
-    *t->running = false;
+    *t->ok = true;
     PQclear(r);
 }
 
@@ -145,11 +146,11 @@ void simple_write()
 
     some(key); some(data); fresh(tbl);
 
-    pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
 
-    volatile bool running = true;
     simple_write_t t = {
-        .running = &running,
+        .ok = &ok,
         .blk_conn = conn,
         .tbl = tbl,
         .key = key,
@@ -162,23 +163,24 @@ void simple_write()
              tbl, key, data);
     pquv_query(pquv, q, simple_write_cb, &t);
 
-    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
 
     pquv_free(pquv);
+    close_loop(loop);
     test_ok();
 }
 
 
 
 typedef struct {
-    volatile bool* running;
+    volatile bool* ok;
 } invalid_query_t;
 
 static void invalid_query_cb(void* opaque, PGresult* r)
 {
     assert(PQresultStatus(r) == PGRES_FATAL_ERROR);
     invalid_query_t* t = (invalid_query_t*)opaque;
-    *t->running = false;
+    *t->ok = true;
     PQclear(r);
 }
 
@@ -187,14 +189,13 @@ void invalid_query()
     test_start();
     pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
 
-    volatile bool running = true;
-    invalid_query_t t = { .running = &running, };
+    invalid_query_t t = { .ok = &ok, };
 
     char q[MAX_QUERY_LENGTH];
     snprintf(q, MAX_QUERY_LENGTH, "SELECT * FROM lol-table");
     pquv_query(pquv, q, invalid_query_cb, &t);
 
-    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && running);
+    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && !ok);
 
     pquv_free(pquv);
     test_ok();
