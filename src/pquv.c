@@ -109,11 +109,39 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
 
             /* TODO: handle more results */
             assert(PQgetResult(pquv->conn) == NULL);
+        } else {
+            panic("PQisBusy returned true, what to do?");
         }
     }
 
     return;
 }
+
+/* Non-blocking connection request
+ *
+ * Quoting from: https://www.postgresql.org/docs/9.6/static/libpq-connect.html
+ *
+ * To begin a nonblocking connection request,
+ * call conn = PQconnectStart("connection_info_string"). If conn is null, then
+ * libpq has been unable to allocate a new PGconn structure. Otherwise, a valid
+ * PGconn pointer is returned (though not yet representing a valid connection
+ * to the database). On return from PQconnectStart, call status =
+ * PQstatus(conn). If status equals CONNECTION_BAD, PQconnectStart has failed.
+ *
+ * If PQconnectStart succeeds, the next stage is to poll libpq so that it can
+ * proceed with the connection sequence. Use PQsocket(conn) to obtain the
+ * descriptor of the socket underlying the database connection. Loop thus: If
+ * PQconnectPoll(conn) last returned PGRES_POLLING_READING, wait until the
+ * socket is ready to read (as indicated by select(), poll(), or similar system
+ * function). Then call PQconnectPoll(conn) again. Conversely, if
+ * PQconnectPoll(conn) last returned PGRES_POLLING_WRITING, wait until the
+ * socket is ready to write, then call PQconnectPoll(conn) again. If you have
+ * yet to call PQconnectPoll, i.e., just after the call to PQconnectStart,
+ * behave as if it last returned PGRES_POLLING_WRITING. Continue this loop
+ * until PQconnectPoll(conn) returns PGRES_POLLING_FAILED, indicating the
+ * connection procedure has failed, or PGRES_POLLING_OK, indicating the
+ * connection has been successfully made.
+ */
 
 static void poll_connection(pquv_t* pquv);
 
