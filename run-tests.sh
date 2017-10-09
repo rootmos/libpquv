@@ -39,4 +39,21 @@ $PSQL --echo-queries --command="CREATE DATABASE $DB"
 
 export PG_CONNINFO="postgresql://$USER@$PG_ADDR:$PG_PORT/$DB"
 echo "url: $PG_CONNINFO"
+
+DUMMY_DEV=dummy1
+PG_DUMMY_ADDR=${PG_DUMMY_ADDR-10.7.0.1}
+PG_DUMMY_PORT=${PG_DUMMY_PORT-5432}
+
+if ! ip link show $DUMMY_DEV type dummy 2> /dev/null; then
+    ip link add $DUMMY_DEV type dummy
+    ip address add $PG_DUMMY_ADDR/32 dev $DUMMY_DEV
+    ip link set dev $DUMMY_DEV up
+fi
+
+socat \
+    TCP4-LISTEN:$PG_DUMMY_PORT,bind=$PG_DUMMY_ADDR,reuseaddr,fork \
+    TCP4:$PG_ADDR:$PG_PORT &
+
+export PG_DUMMY_CONNINFO="postgresql://$USER@$PG_DUMMY_ADDR:$PG_DUMMY_PORT/$DB"
+
 exec timeout ${TIMEOUT-2s} $DRIVER

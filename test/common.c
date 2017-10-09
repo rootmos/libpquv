@@ -5,7 +5,7 @@
 
 const char* conninfo()
 {
-    const char* ci = getenv("PG_CONNINFO");
+    const char* ci = getenv("PG_DUMMY_CONNINFO");
     assert(ci);
     return ci;
 }

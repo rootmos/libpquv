@@ -2,7 +2,8 @@ FROM debian:stretch-slim
 
 RUN mkdir -p /usr/share/man/man1 /usr/share/man/man7 \
   && apt-get update && apt-get install --no-install-recommends -y \
-      make cmake gcc libpq-dev libc-dev netcat postgresql-client-9.6 libuv1-dev
+      make cmake gcc libpq-dev libc-dev netcat postgresql-client-9.6 \
+      libuv1-dev iproute2 socat
 
 RUN mkdir /libpquv
 WORKDIR /libpquv

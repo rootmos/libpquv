@@ -5,3 +5,5 @@ test:
   build: .
   links:
     - "pg:pg"
+  cap_add:
+    - NET_ADMIN
