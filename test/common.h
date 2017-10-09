@@ -46,6 +46,7 @@
 }
 
 const char* conninfo();
+const char* conninfo_dummy();
 PGconn* connect_blk();
 
 void fresh_table(PGconn* conn, char* tbl, size_t n);
@@ -57,5 +58,9 @@ void fresh_table(PGconn* conn, char* tbl, size_t n);
     assert(uv_run(&l, UV_RUN_NOWAIT) == 0); \
     assert(uv_loop_close(&l) == 0); \
 }
+
+void dummy_pg_iptables_drop();
+void dummy_pg_iptables_reject();
+void dummy_pg_iptables_flush();
 
 #endif
