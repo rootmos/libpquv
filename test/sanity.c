@@ -5,6 +5,10 @@
 void sanity_check()
 {
     test_start();
+
+    /*assert(0 == system("iptables -A OUTPUT -d 172.17.0.5 -j DROP"));*/
+    /*assert(0 == system("iptables -A OUTPUT -d 172.17.0.5 -j REJECT"));*/
+
     PGconn* conn = connect_blk();
 
     fresh(tbl);
