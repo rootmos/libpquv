@@ -18,7 +18,7 @@
 #define test_start() \
     volatile bool ok = false; \
     printf("%s - starting\n", __extension__ __FUNCTION__);
-#define test_ok() { assert(ok); printf("%s - ok\n", __extension__ __FUNCTION__); }
+#define test_done() { assert(ok); printf("%s - ok\n", __extension__ __FUNCTION__); }
 
 #define some(x) char x[100]; snprintf(x, sizeof(x), #x "%.5u", rand() % 1000);
 
@@ -62,5 +62,8 @@ void fresh_table(PGconn* conn, char* tbl, size_t n);
 void dummy_pg_iptables_drop();
 void dummy_pg_iptables_reject();
 void dummy_pg_iptables_flush();
+
+#define container_of(ptr, type, member) \
+    ((type *)((char *)(ptr) - offsetof(type, member)))
 
 #endif

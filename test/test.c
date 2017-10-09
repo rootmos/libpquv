@@ -12,6 +12,7 @@ static void simple_read_cb(void* opaque, PGresult* r)
 {
     simple_read_t* t = (simple_read_t*)opaque;
 
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
     assert(PQntuples(r) == 1);
     assert(strcmp(PQgetvalue(r, 0, 0), t->expected_data) == 0);
 
@@ -44,7 +45,7 @@ void simple_read()
 
     pquv_free(pquv);
     close_loop(loop);
-    test_ok();
+    test_done();
 }
 
 
@@ -60,6 +61,7 @@ static void multiple_reads_cb(void* opaque, PGresult* r)
 {
     multiple_reads_t* t = (multiple_reads_t*)opaque;
 
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
     assert(PQntuples(r) == 1);
     assert(strcmp(PQgetvalue(r, 0, 0), t->expected_data) == 0);
 
@@ -109,7 +111,7 @@ void multiple_reads()
 
     pquv_free(pquv);
     close_loop(loop);
-    test_ok();
+    test_done();
 }
 
 
@@ -167,7 +169,7 @@ void simple_write()
 
     pquv_free(pquv);
     close_loop(loop);
-    test_ok();
+    test_done();
 }
 
 
@@ -187,16 +189,82 @@ static void invalid_query_cb(void* opaque, PGresult* r)
 void invalid_query()
 {
     test_start();
-    pquv_t* pquv = pquv_init(conninfo(), uv_default_loop());
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
 
-    invalid_query_t t = { .ok = &ok, };
+    invalid_query_t t = { .ok = &ok };
 
-    char q[MAX_QUERY_LENGTH];
-    snprintf(q, MAX_QUERY_LENGTH, "SELECT * FROM lol-table");
-    pquv_query(pquv, q, invalid_query_cb, &t);
+    pquv_query(pquv, "SELECT * FROM lol-table", invalid_query_cb, &t);
 
-    while (uv_run(uv_default_loop(), UV_RUN_ONCE) && !ok);
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
 
     pquv_free(pquv);
-    test_ok();
+    close_loop(loop);
+    test_done();
+}
+
+typedef struct {
+    volatile bool* ok;
+    volatile bool cleaned_up;
+    volatile bool tables_flushed;
+    uv_timer_t timer;
+} initial_bad_connection_t;
+
+static void initial_bad_connection_cb(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(1 == ntohl(*((uint32_t *)PQgetvalue(r, 0, 0))));
+
+    initial_bad_connection_t* t = (initial_bad_connection_t*)opaque;
+    assert(t->tables_flushed);
+    *t->ok = true;
+    PQclear(r);
+}
+
+static void initial_bad_connection_timer_cb(uv_timer_t* handle)
+{
+    dummy_pg_iptables_flush();
+    initial_bad_connection_t* t = container_of(handle,
+                                               initial_bad_connection_t,
+                                               timer);
+    t->tables_flushed = true;
+}
+
+static void initial_bad_connection_timer_free_cb(uv_handle_t* handle)
+{
+    initial_bad_connection_t* t = container_of(handle,
+                                               initial_bad_connection_t,
+                                               timer);
+    t->cleaned_up = true;
+}
+
+void initial_bad_connection()
+{
+    test_start();
+    new_loop(loop);
+
+    /* TODO: retry connection when this is set to _reject */
+    dummy_pg_iptables_drop();
+
+    initial_bad_connection_t t = {
+        .ok = &ok,
+        .cleaned_up = false,
+        .tables_flushed = false
+    };
+
+    assert(0 == uv_timer_init(&loop, &t.timer));
+    assert(0 == uv_timer_start(&t.timer, initial_bad_connection_timer_cb,
+                               1000, 0));
+
+    pquv_t* pquv = pquv_init(conninfo_dummy(), &loop);
+    pquv_query(pquv, "SELECT 1", initial_bad_connection_cb, &t);
+
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
+
+    pquv_free(pquv);
+    uv_close((uv_handle_t*)&t.timer, initial_bad_connection_timer_free_cb);
+    close_loop(loop);
+    assert(t.cleaned_up);
+    test_done();
 }

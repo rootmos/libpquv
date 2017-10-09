@@ -11,5 +11,6 @@ int main()
     multiple_reads();
     simple_write();
     invalid_query();
+    initial_bad_connection();
     return 0;
 }

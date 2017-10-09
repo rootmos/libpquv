@@ -50,7 +50,7 @@ static void maybe_send_req(pquv_t* pquv)
     if(r == NULL)
         return;
 
-    if(!PQsendQuery(pquv->conn, r->q))
+    if(!PQsendQueryParams(pquv->conn, r->q, 0, NULL, NULL, NULL, NULL, 1))
         panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
 
     assert(PQflush(pquv->conn) >= 0);
