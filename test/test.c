@@ -48,6 +48,55 @@ void simple_read()
     test_done();
 }
 
+typedef struct {
+    volatile bool* ok;
+    PGconn* conn;
+    const char* expected_data;
+} parametrized_query_t;
+
+static void parametrized_query_cb(void* opaque, PGresult* r)
+{
+    parametrized_query_t* t = (parametrized_query_t*)opaque;
+
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(strcmp(PQgetvalue(r, 0, 0), t->expected_data) == 0);
+
+    *t->ok = true;
+    PQclear(r);
+}
+
+void parametrized_query()
+{
+    test_start();
+    PGconn* conn = connect_blk();
+
+    some(key); some(data); fresh(tbl);
+
+    exec_and_expect_ok(conn,
+            "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
+            tbl, key, data);
+
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
+
+    parametrized_query_t t = {.ok = &ok, .expected_data = data};
+
+    char q[MAX_QUERY_LENGTH];
+    snprintf(q, MAX_QUERY_LENGTH, "SELECT blob FROM %s WHERE id = $1", tbl);
+
+    const char* values[1]; values[0] = key;
+    pquv_query_params(pquv, q, 1, values, NULL, NULL,
+                      parametrized_query_cb, &t);
+
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
+
+    pquv_free(pquv);
+    close_loop(loop);
+    test_done();
+}
+
+
 
 typedef struct {
     pquv_t* pquv;

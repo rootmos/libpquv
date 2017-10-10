@@ -8,6 +8,7 @@ int main()
     srand(time(NULL));
     sanity_check();
     simple_read();
+    parametrized_query();
     multiple_reads();
     simple_write();
     invalid_query();

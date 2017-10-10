@@ -4,6 +4,7 @@
 void sanity_check();
 
 void simple_read();
+void parametrized_query();
 void multiple_reads();
 void simple_write();
 void invalid_query();

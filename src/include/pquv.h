@@ -15,6 +15,23 @@ void pquv_free(pquv_t* pquv);
 typedef void (*req_cb)(void* opaque, PGresult* res);
 
 #define MAX_QUERY_LENGTH 2048
-void pquv_query(pquv_t* pquv, const char* q, req_cb cb, void* opaque);
+void pquv_query_params(
+        pquv_t* pquv,
+        const char* q,
+        int nParams,
+        const char * const *paramValues,
+        const int *paramLengths,
+        const int *paramFormats,
+        req_cb cb,
+        void* opaque);
+
+static inline void pquv_query(
+        pquv_t* pquv,
+        const char* q,
+        req_cb cb,
+        void* opaque)
+{
+    pquv_query_params(pquv, q, 0, NULL, NULL, NULL, cb, opaque);
+}
 
 #endif

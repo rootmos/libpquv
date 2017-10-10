@@ -10,6 +10,11 @@
 
 typedef struct req_ts {
     char* q;
+    int nParams;
+    const char * const *paramValues;
+    const int *paramLengths;
+    const int *paramFormats;
+
     void* opaque;
     req_cb cb;
     struct req_ts* next;
@@ -64,7 +69,14 @@ static void maybe_send_req(pquv_t* pquv)
     if(r == NULL)
         return;
 
-    if(!PQsendQueryParams(pquv->conn, r->q, 0, NULL, NULL, NULL, NULL, 1))
+    if(!PQsendQueryParams(pquv->conn,
+                          r->q,
+                          r->nParams,
+                          NULL,
+                          r->paramValues,
+                          r->paramLengths,
+                          r->paramFormats,
+                          1))
         panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
 
     assert(PQflush(pquv->conn) >= 0);
@@ -72,10 +84,45 @@ static void maybe_send_req(pquv_t* pquv)
     pquv->live = r;
 }
 
-void pquv_query(pquv_t* pquv, const char* q, req_cb cb, void* opaque)
+
+void pquv_query_params(
+        pquv_t* pquv,
+        const char* q,
+        int nParams,
+        const char * const *paramValues,
+        const int *paramLengths,
+        const int *paramFormats,
+        req_cb cb,
+        void* opaque)
 {
     req_t* r = malloc(sizeof(pquv_t));
     r->q = strndup(q, MAX_QUERY_LENGTH);
+    r->nParams = nParams;
+
+    if (paramValues != NULL && nParams) {
+        size_t n = sizeof(const char*)*nParams;
+        r->paramValues = malloc(n);
+        memcpy((void*)r->paramValues, paramValues, n);
+    } else {
+        r->paramValues = NULL;
+    }
+
+    if (paramLengths != NULL && nParams) {
+        size_t n = sizeof(const int*)*nParams;
+        r->paramLengths = malloc(n);
+        memcpy((void*)r->paramLengths, paramLengths, n);
+    } else {
+        r->paramLengths = NULL;
+    }
+
+    if (paramFormats != NULL && nParams) {
+        size_t n = sizeof(const int*)*nParams;
+        r->paramFormats = malloc(n);
+        memcpy((void*)r->paramFormats, paramFormats, n);
+    } else {
+        r->paramFormats = NULL;
+    }
+
     r->cb = cb;
     r->opaque = opaque;
     r->next = NULL;
@@ -93,6 +140,9 @@ void pquv_query(pquv_t* pquv, const char* q, req_cb cb, void* opaque)
 
 static void free_req(req_t* r) {
     free(r->q);
+    free((void*)r->paramValues);
+    free((void*)r->paramLengths);
+    free((void*)r->paramFormats);
     free(r);
 }
 
@@ -117,6 +167,13 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
         if(!PQisBusy(pquv->conn)) {
             assert(pquv->live);
             PGresult* r = PQgetResult(pquv->conn);
+
+            int res = PQresultStatus(r);
+            if(res != PGRES_TUPLES_OK && res != PGRES_COMMAND_OK) {
+                fprintf(stderr, "query failed: %s", PQerrorMessage(pquv->conn));
+            }
+
+
             pquv->live->cb(pquv->live->opaque, r);
             free_req(pquv->live);
             pquv->live = NULL;
