@@ -55,7 +55,7 @@ void fresh_table(PGconn* conn, char* tbl, size_t n);
 
 #define new_loop(l) uv_loop_t l; assert(uv_loop_init(&l) == 0);
 #define close_loop(l) { \
-    assert(uv_run(&l, UV_RUN_NOWAIT) == 0); \
+    assert(uv_run(&l, UV_RUN_DEFAULT) == 0); \
     assert(uv_loop_close(&l) == 0); \
 }
 

@@ -2,3 +2,10 @@ pg:
   image: "postgres:9.6"
   ports:
     - "5432:5432"
+
+socat:
+  build: socat
+  links:
+    - "pg:pg"
+  ports:
+    - "5433:5432"

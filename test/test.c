@@ -239,32 +239,43 @@ static void initial_bad_connection_timer_free_cb(uv_handle_t* handle)
     t->cleaned_up = true;
 }
 
-void initial_bad_connection()
+void initial_bad_connection(volatile bool* ok)
 {
-    test_start();
     new_loop(loop);
 
-    /* TODO: retry connection when this is set to _reject */
-    dummy_pg_iptables_drop();
-
     initial_bad_connection_t t = {
-        .ok = &ok,
+        .ok = ok,
         .cleaned_up = false,
         .tables_flushed = false
     };
 
     assert(0 == uv_timer_init(&loop, &t.timer));
     assert(0 == uv_timer_start(&t.timer, initial_bad_connection_timer_cb,
-                               1000, 0));
+                               1500, 0));
 
     pquv_t* pquv = pquv_init(conninfo_dummy(), &loop);
     pquv_query(pquv, "SELECT 1", initial_bad_connection_cb, &t);
 
-    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
+    while (uv_run(&loop, UV_RUN_ONCE) && !*ok);
 
     pquv_free(pquv);
     uv_close((uv_handle_t*)&t.timer, initial_bad_connection_timer_free_cb);
     close_loop(loop);
     assert(t.cleaned_up);
+}
+
+void initial_drop_connection()
+{
+    test_start();
+    dummy_pg_iptables_drop();
+    initial_bad_connection(&ok);
+    test_done();
+}
+
+void initial_reject_connection()
+{
+    test_start();
+    dummy_pg_iptables_reject();
+    initial_bad_connection(&ok);
     test_done();
 }
