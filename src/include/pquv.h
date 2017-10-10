@@ -19,6 +19,29 @@ void pquv_query_params(
         pquv_t* pquv,
         const char* q,
         int nParams,
+        const Oid *paramTypes,
+        const char * const *paramValues,
+        const int *paramLengths,
+        const int *paramFormats,
+        req_cb cb,
+        void* opaque,
+        uint32_t flags);
+
+#define MAX_NAME_LENGTH 512
+void pquv_prepare(
+        pquv_t* pquv,
+        const char* q,
+        const char* name,
+        int nParams,
+        const Oid *paramTypes,
+        req_cb cb,
+        void* opaque,
+        uint32_t flags);
+
+void pquv_prepared(
+        pquv_t* pquv,
+        const char* name,
+        int nParams,
         const char * const *paramValues,
         const int *paramLengths,
         const int *paramFormats,
@@ -29,6 +52,9 @@ void pquv_query_params(
 /* the query string given to `pquv_query_params` is guaranteed to be accessible
  * until the callback is called */
 #define PQUV_NON_VOLATILE_QUERY_STRING 0x00000001
+/* the name string given to `pquv_prepare` is guaranteed to be accessible
+ * until the callback is called */
+#define PQUV_NON_VOLATILE_NAME_STRING  0x00000002
 
 static inline void pquv_query(
         pquv_t* pquv,
@@ -36,7 +62,7 @@ static inline void pquv_query(
         req_cb cb,
         void* opaque)
 {
-    pquv_query_params(pquv, q, 0, NULL, NULL, NULL, cb, opaque, 0);
+    pquv_query_params(pquv, q, 0, NULL, NULL, NULL, NULL, cb, opaque, 0);
 }
 
 #endif

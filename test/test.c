@@ -50,7 +50,6 @@ void simple_read()
 
 typedef struct {
     volatile bool* ok;
-    PGconn* conn;
     const char* expected_data;
 } parametrized_query_t;
 
@@ -86,9 +85,81 @@ void parametrized_query()
     snprintf(q, MAX_QUERY_LENGTH, "SELECT blob FROM %s WHERE id = $1", tbl);
 
     const char* values[1]; values[0] = key;
-    pquv_query_params(pquv, q, 1, values, NULL, NULL,
+    pquv_query_params(pquv, q, 1, NULL, values, NULL, NULL,
                       parametrized_query_cb, &t,
                       PQUV_NON_VOLATILE_QUERY_STRING);
+
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
+
+    pquv_free(pquv);
+    close_loop(loop);
+    test_done();
+}
+
+typedef struct {
+    volatile bool* ok;
+    pquv_t* pquv;
+    const char* key;
+    const char* data;
+    const char* stmt;
+} prepared_statement_t;
+
+static void prepared_statement_cb_2(void* opaque, PGresult* r)
+{
+    prepared_statement_t* t = (prepared_statement_t*)opaque;
+
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(strcmp(PQgetvalue(r, 0, 0), t->data) == 0);
+
+    *t->ok = true;
+    PQclear(r);
+}
+
+
+static void prepared_statement_cb_1(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_COMMAND_OK);
+
+    prepared_statement_t* t = (prepared_statement_t*)opaque;
+
+    const char* values[] = { t->key };
+    pquv_prepared(t->pquv, t->stmt,
+                  1, values, NULL, NULL,
+                  prepared_statement_cb_2, t,
+                  PQUV_NON_VOLATILE_NAME_STRING);
+}
+
+
+void prepared_statement()
+{
+    test_start();
+    PGconn* conn = connect_blk();
+
+    some(stmt); some(key); some(data); fresh(tbl);
+
+    exec_and_expect_ok(conn,
+            "INSERT INTO %s (id, blob) VALUES ('%s', '%s')",
+            tbl, key, data);
+
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
+
+    prepared_statement_t t = {
+        .ok = &ok,
+        .pquv = pquv,
+        .key = key,
+        .data = data,
+        .stmt = stmt,
+    };
+
+    char q[MAX_QUERY_LENGTH];
+    snprintf(q, MAX_QUERY_LENGTH, "SELECT blob FROM %s WHERE id = $1", tbl);
+
+    pquv_prepare(
+            pquv, q, stmt, 1, NULL,
+            prepared_statement_cb_1, &t,
+            PQUV_NON_VOLATILE_NAME_STRING | PQUV_NON_VOLATILE_QUERY_STRING);
 
     while (uv_run(&loop, UV_RUN_ONCE) && !ok);
 

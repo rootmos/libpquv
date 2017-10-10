@@ -8,9 +8,18 @@
 #include <string.h>
 #include <unistd.h>
 
+enum pquv_req_kind_t {
+    PQUV_NORMAL_STATEMENT = 0,
+    PQUV_PREPARE_STATEMENT,
+    PQUV_PREPARED_STATEMENT,
+};
+
 typedef struct req_ts {
+    int kind;
     const char* q;
+    const char* name;
     int nParams;
+    const Oid *paramTypes;
     const char * const *paramValues;
     const int *paramLengths;
     const int *paramFormats;
@@ -69,26 +78,50 @@ static void maybe_send_req(pquv_t* pquv)
     if(r == NULL)
         return;
 
-    if(!PQsendQueryParams(pquv->conn,
+    switch(r->kind) {
+    case PQUV_NORMAL_STATEMENT:
+        if(!PQsendQueryParams(pquv->conn,
+                              r->q,
+                              r->nParams,
+                              r->paramTypes,
+                              r->paramValues,
+                              r->paramLengths,
+                              r->paramFormats,
+                              1))
+            panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
+        break;
+    case PQUV_PREPARE_STATEMENT:
+        if(!PQsendPrepare(pquv->conn,
+                          r->name,
                           r->q,
                           r->nParams,
-                          NULL,
-                          r->paramValues,
-                          r->paramLengths,
-                          r->paramFormats,
-                          1))
-        panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
+                          r->paramTypes))
+            panic("PQSendPerpare: %s\n", PQerrorMessage(pquv->conn));
+        break;
+    case PQUV_PREPARED_STATEMENT:
+        if(!PQsendQueryPrepared(pquv->conn,
+                                r->name,
+                                r->nParams,
+                                r->paramValues,
+                                r->paramLengths,
+                                r->paramFormats,
+                                1))
+            panic("PQsendQueryPrepared: %s\n", PQerrorMessage(pquv->conn));
+        break;
+    }
 
     assert(PQflush(pquv->conn) >= 0);
 
     pquv->live = r;
 }
 
-
-void pquv_query_params(
+static void enqueue_req(
         pquv_t* pquv,
+        enum pquv_req_kind_t kind,
         const char* q,
+        const char* name,
         int nParams,
+        const Oid *paramTypes,
         const char * const *paramValues,
         const int *paramLengths,
         const int *paramFormats,
@@ -98,12 +131,28 @@ void pquv_query_params(
 {
     req_t* r = malloc(sizeof(pquv_t));
     r->flags = flags;
+    r->kind = kind;
+    r->nParams = nParams;
+
     if(flags & PQUV_NON_VOLATILE_QUERY_STRING) {
         r->q = q;
     } else {
-        r->q = strndup(q, MAX_QUERY_LENGTH);
+        r->q = q ? strndup(q, MAX_QUERY_LENGTH) : NULL;
     }
-    r->nParams = nParams;
+
+    if(flags & PQUV_NON_VOLATILE_NAME_STRING) {
+        r->name = name;
+    } else {
+        r->name = name ? strndup(name, MAX_NAME_LENGTH) : NULL;
+    }
+
+    if (paramTypes != NULL && nParams) {
+        size_t n = sizeof(const char*)*nParams;
+        r->paramTypes = malloc(n);
+        memcpy((void*)r->paramTypes, paramTypes, n);
+    } else {
+        r->paramTypes = NULL;
+    }
 
     if (paramValues != NULL && nParams) {
         size_t n = sizeof(const char*)*nParams;
@@ -144,10 +193,74 @@ void pquv_query_params(
     }
 }
 
+void pquv_query_params(
+        pquv_t* pquv,
+        const char* q,
+        int nParams,
+        const Oid *paramTypes,
+        const char * const *paramValues,
+        const int *paramLengths,
+        const int *paramFormats,
+        req_cb cb,
+        void* opaque,
+        uint32_t flags)
+{
+    enqueue_req(
+            pquv,
+            PQUV_NORMAL_STATEMENT,
+            q, NULL,
+            nParams, paramTypes, paramValues, paramLengths, paramFormats,
+            cb, opaque,
+            flags);
+}
+
+void pquv_prepare(
+        pquv_t* pquv,
+        const char* q,
+        const char* name,
+        int nParams,
+        const Oid *paramTypes,
+        req_cb cb,
+        void* opaque,
+        uint32_t flags)
+{
+    enqueue_req(
+            pquv,
+            PQUV_PREPARE_STATEMENT,
+            q, name,
+            nParams, paramTypes, NULL, NULL, NULL,
+            cb, opaque,
+            flags);
+}
+
+void pquv_prepared(
+        pquv_t* pquv,
+        const char* name,
+        int nParams,
+        const char * const *paramValues,
+        const int *paramLengths,
+        const int *paramFormats,
+        req_cb cb,
+        void* opaque,
+        uint32_t flags)
+{
+    enqueue_req(
+            pquv,
+            PQUV_PREPARED_STATEMENT,
+            NULL, name,
+            nParams, NULL, paramValues, paramLengths, paramFormats,
+            cb, opaque,
+            flags);
+}
+
 static void free_req(req_t* r) {
     if(!(r->flags & PQUV_NON_VOLATILE_QUERY_STRING))
         free((void*)r->q);
 
+    if(!(r->flags & PQUV_NON_VOLATILE_NAME_STRING))
+        free((void*)r->name);
+
+    free((void*)r->paramTypes);
     free((void*)r->paramValues);
     free((void*)r->paramLengths);
     free((void*)r->paramFormats);
@@ -180,7 +293,6 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             if(res != PGRES_TUPLES_OK && res != PGRES_COMMAND_OK) {
                 fprintf(stderr, "query failed: %s", PQerrorMessage(pquv->conn));
             }
-
 
             pquv->live->cb(pquv->live->opaque, r);
             free_req(pquv->live);

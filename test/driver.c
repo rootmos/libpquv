@@ -9,6 +9,7 @@ int main()
     sanity_check();
     simple_read();
     parametrized_query();
+    prepared_statement();
     multiple_reads();
     simple_write();
     invalid_query();
