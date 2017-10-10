@@ -39,4 +39,9 @@ $PSQL --echo-queries --command="CREATE DATABASE $DB"
 
 export PG_CONNINFO="postgresql://$USER@$PG_ADDR:$PG_PORT/$DB"
 echo "url: $PG_CONNINFO"
-exec timeout ${TIMEOUT-2s} $DRIVER
+
+PG_DUMMY_PORT=${SOCAT_PORT_5432_TCP_PORT-5432}
+export PG_DUMMY_ADDR=${SOCAT_PORT_5432_TCP_ADDR-127.0.0.1}
+export PG_DUMMY_CONNINFO="postgresql://$USER@$PG_DUMMY_ADDR:$PG_DUMMY_PORT/$DB"
+
+exec timeout ${TIMEOUT-10s} $DRIVER

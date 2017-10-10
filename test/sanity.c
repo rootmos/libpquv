@@ -62,5 +62,5 @@ void sanity_check()
 
     ok = true;
     PQfinish(conn);
-    test_ok();
+    test_done();
 }

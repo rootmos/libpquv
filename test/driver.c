@@ -11,5 +11,7 @@ int main()
     multiple_reads();
     simple_write();
     invalid_query();
+    initial_drop_connection();
+    initial_reject_connection();
     return 0;
 }

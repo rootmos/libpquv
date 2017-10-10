@@ -7,6 +7,7 @@
 struct pquv_st;
 typedef struct pquv_st pquv_t;
 
+#define MAX_CONNINFO_LENGTH 1048
 pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop);
 void pquv_free(pquv_t* pquv);
 

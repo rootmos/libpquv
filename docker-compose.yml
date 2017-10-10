@@ -1,7 +1,15 @@
 pg:
   image: "postgres:9.6"
 
+socat:
+  build: socat
+  links:
+    - "pg:pg"
+
 test:
   build: .
   links:
     - "pg:pg"
+    - "socat:socat"
+  cap_add:
+    - "NET_ADMIN"

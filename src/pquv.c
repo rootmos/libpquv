@@ -20,8 +20,22 @@ typedef struct {
     req_t* tail;
 } queue_t;
 
+enum pquv_state_t {
+    PQUV_NEW = 0,
+    PQUV_CONNECTING,
+    PQUV_RESETTING,
+    PQUV_CONNECTED,
+    PQUV_BAD_CONNECTION,
+    PQUV_BAD_RESET,
+};
+
 struct pquv_st {
+    uv_loop_t* loop;
     uv_poll_t poll;
+    uv_timer_t reconnect_timer;
+    int reconnect_timer_ms;
+    enum pquv_state_t state;
+    char* conninfo;
     PGconn* conn;
     req_t* live;
     queue_t queue;
@@ -50,7 +64,7 @@ static void maybe_send_req(pquv_t* pquv)
     if(r == NULL)
         return;
 
-    if(!PQsendQuery(pquv->conn, r->q))
+    if(!PQsendQueryParams(pquv->conn, r->q, 0, NULL, NULL, NULL, NULL, 1))
         panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
 
     assert(PQflush(pquv->conn) >= 0);
@@ -153,42 +167,30 @@ static void connection_cb(uv_poll_t* handle, int status, int events)
     poll_connection(pquv);
 }
 
-static void poll_connection(pquv_t* pquv)
+
+static void start_connection(pquv_t* pquv);
+
+static void start_connection_close_poll_cb(uv_handle_t* h)
 {
-    int events;
-    uv_poll_cb cb;
-
-    switch(PQconnectPoll(pquv->conn)) {
-    case PGRES_POLLING_READING:
-        events = UV_READABLE;
-        cb = connection_cb;
-        break;
-    case PGRES_POLLING_WRITING:
-        events = UV_WRITABLE;
-        cb = connection_cb;
-        break;
-    case PGRES_POLLING_OK:
-        events = UV_WRITABLE | UV_READABLE;
-        cb = poll_cb;
-        break;
-    default:
-        panic("PQconnectPoll unexpected status\n");
-    }
-
-    int r;
-    if((r = uv_poll_start(&pquv->poll, events, cb)) != 0)
-        panic("uv_poll_start: %s\n", uv_strerror(r));
+    pquv_t* pquv = container_of(h, pquv_t, poll);
+    assert(0 == close(pquv->fd));
+    PQfinish(pquv->conn);
+    pquv->fd = -1;
+    pquv->state = PQUV_NEW;
+    start_connection(pquv);
 }
 
-pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
+static void start_connection(pquv_t* pquv)
 {
-    pquv_t* pquv = malloc(sizeof(pquv_t));
-    assert(pquv);
-    pquv->queue.head = NULL;
-    pquv->queue.tail = NULL;
-    pquv->live = NULL;
+    if(pquv->fd >= 0) {
+        assert(0 == uv_poll_stop(&pquv->poll));
+        uv_close((uv_handle_t*)&pquv->poll, start_connection_close_poll_cb);
+        return;
+    }
 
-    pquv->conn = PQconnectStart(conninfo);
+    assert(pquv->state == PQUV_NEW);
+
+    pquv->conn = PQconnectStart(pquv->conninfo);
     assert(pquv->conn);
     assert(PQstatus(pquv->conn) != CONNECTION_BAD);
 
@@ -219,15 +221,113 @@ pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
     assert(pquv->fd >= 0);
 
     int r;
-    if((r = uv_poll_init(loop, &pquv->poll, pquv->fd)) != 0)
+    if((r = uv_poll_init(pquv->loop, &pquv->poll, pquv->fd)) != 0)
         panic("uv_poll_init: %s\n", uv_strerror(r));
 
+    pquv->state = PQUV_CONNECTING;
+
     poll_connection(pquv);
+}
+
+static void reconnect_timer_cb(uv_timer_t* h)
+{
+    pquv_t* pquv = container_of(h, pquv_t, reconnect_timer);
+
+    switch(pquv->state) {
+    case PQUV_BAD_RESET:
+        assert(0 == PQresetStart(pquv->conn));
+        pquv->state = PQUV_RESETTING;
+        poll_connection(pquv);
+        break;
+    case PQUV_BAD_CONNECTION:
+        start_connection(pquv);
+        break;
+    default:
+        panic("unexpected state: %d\n", pquv->state);
+    }
+}
+
+static void poll_connection(pquv_t* pquv)
+{
+    int events;
+    uv_poll_cb cb;
+
+    int r;
+
+    switch(pquv->state) {
+    case PQUV_CONNECTING:
+        r = PQconnectPoll(pquv->conn);
+        break;
+    case PQUV_RESETTING:
+        r = PQresetPoll(pquv->conn);
+        break;
+    default:
+        panic("unexpected state: %d\n", pquv->state);
+    }
+
+    switch(r) {
+    case PGRES_POLLING_READING:
+        events = UV_READABLE;
+        cb = connection_cb;
+        break;
+    case PGRES_POLLING_WRITING:
+        events = UV_WRITABLE;
+        cb = connection_cb;
+        break;
+    case PGRES_POLLING_OK:
+        pquv->state = PQUV_CONNECTED;
+        events = UV_WRITABLE | UV_READABLE;
+        cb = poll_cb;
+        break;
+    case PGRES_POLLING_FAILED:
+        switch(pquv->state) {
+        case PQUV_CONNECTING:
+            pquv->state = PQUV_BAD_CONNECTION;
+            break;
+        case PQUV_RESETTING:
+            pquv->state = PQUV_BAD_RESET;
+            break;
+        default:
+            panic("unexpected state: %d\n", pquv->state);
+        }
+
+        assert(0 == uv_timer_start(
+                        &pquv->reconnect_timer,
+                        reconnect_timer_cb,
+                        pquv->reconnect_timer_ms,
+                        0));
+        return;
+    default:
+        panic("PQconnectPoll unexpected status\n");
+    }
+
+    if((r = uv_poll_start(&pquv->poll, events, cb)) != 0)
+        panic("uv_poll_start: %s\n", uv_strerror(r));
+}
+
+pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
+{
+    pquv_t* pquv = malloc(sizeof(pquv_t));
+    assert(pquv);
+    pquv->loop = loop;
+    pquv->conninfo = strndup(conninfo, MAX_CONNINFO_LENGTH);
+    pquv->queue.head = NULL;
+    pquv->queue.tail = NULL;
+    pquv->reconnect_timer_ms = 1000;
+    pquv->state = PQUV_NEW;
+    pquv->fd = -1;
+    pquv->live = NULL;
+
+    int r;
+    if((r = uv_timer_init(loop, &pquv->reconnect_timer)) != 0)
+        panic("uv_timer_init: %s\n", uv_strerror(r));
+
+    start_connection(pquv);
 
     return pquv;
 }
 
-static void pquv_free_cb(uv_handle_t* h)
+static void pquv_free_close_poll_cb(uv_handle_t* h)
 {
     pquv_t* pquv = container_of(h, pquv_t, poll);
 
@@ -245,11 +345,19 @@ static void pquv_free_cb(uv_handle_t* h)
         r = n;
     }
 
+    free(pquv->conninfo);
     free(pquv);
+}
+
+
+static void pquv_close_timer_cb(uv_handle_t* h)
+{
+    pquv_t* pquv = container_of(h, pquv_t, reconnect_timer);
+    assert(0 == uv_poll_stop(&pquv->poll));
+    uv_close((uv_handle_t*)&pquv->poll, pquv_free_close_poll_cb);
 }
 
 void pquv_free(pquv_t* pquv)
 {
-    assert(0 == uv_poll_stop(&pquv->poll));
-    uv_close((uv_handle_t*)&pquv->poll, pquv_free_cb);
+    uv_close((uv_handle_t*)&pquv->reconnect_timer, pquv_close_timer_cb);
 }
