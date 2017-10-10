@@ -9,12 +9,12 @@
 #include <unistd.h>
 
 typedef struct req_ts {
-    char* q;
+    const char* q;
     int nParams;
     const char * const *paramValues;
     const int *paramLengths;
     const int *paramFormats;
-
+    uint32_t flags;
     void* opaque;
     req_cb cb;
     struct req_ts* next;
@@ -93,10 +93,16 @@ void pquv_query_params(
         const int *paramLengths,
         const int *paramFormats,
         req_cb cb,
-        void* opaque)
+        void* opaque,
+        uint32_t flags)
 {
     req_t* r = malloc(sizeof(pquv_t));
-    r->q = strndup(q, MAX_QUERY_LENGTH);
+    r->flags = flags;
+    if(flags & PQUV_NON_VOLATILE_QUERY_STRING) {
+        r->q = q;
+    } else {
+        r->q = strndup(q, MAX_QUERY_LENGTH);
+    }
     r->nParams = nParams;
 
     if (paramValues != NULL && nParams) {
@@ -139,7 +145,9 @@ void pquv_query_params(
 }
 
 static void free_req(req_t* r) {
-    free(r->q);
+    if(!(r->flags & PQUV_NON_VOLATILE_QUERY_STRING))
+        free((void*)r->q);
+
     free((void*)r->paramValues);
     free((void*)r->paramLengths);
     free((void*)r->paramFormats);

@@ -87,7 +87,8 @@ void parametrized_query()
 
     const char* values[1]; values[0] = key;
     pquv_query_params(pquv, q, 1, values, NULL, NULL,
-                      parametrized_query_cb, &t);
+                      parametrized_query_cb, &t,
+                      PQUV_NON_VOLATILE_QUERY_STRING);
 
     while (uv_run(&loop, UV_RUN_ONCE) && !ok);
 

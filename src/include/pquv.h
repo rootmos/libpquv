@@ -23,7 +23,12 @@ void pquv_query_params(
         const int *paramLengths,
         const int *paramFormats,
         req_cb cb,
-        void* opaque);
+        void* opaque,
+        uint32_t flags);
+
+/* the query string given to `pquv_query_params` is guaranteed to be accessible
+ * until the callback is called */
+#define PQUV_NON_VOLATILE_QUERY_STRING 0x00000001
 
 static inline void pquv_query(
         pquv_t* pquv,
@@ -31,7 +36,7 @@ static inline void pquv_query(
         req_cb cb,
         void* opaque)
 {
-    pquv_query_params(pquv, q, 0, NULL, NULL, NULL, cb, opaque);
+    pquv_query_params(pquv, q, 0, NULL, NULL, NULL, cb, opaque, 0);
 }
 
 #endif
