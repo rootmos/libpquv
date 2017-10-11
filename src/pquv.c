@@ -290,9 +290,8 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             PGresult* r = PQgetResult(pquv->conn);
 
             int res = PQresultStatus(r);
-            if(res != PGRES_TUPLES_OK && res != PGRES_COMMAND_OK) {
-                fprintf(stderr, "query failed: %s", PQerrorMessage(pquv->conn));
-            }
+            if(res != PGRES_TUPLES_OK && res != PGRES_COMMAND_OK)
+                warn("query failed: %s", PQerrorMessage(pquv->conn));
 
             pquv->live->cb(pquv->live->opaque, r);
             free_req(pquv->live);

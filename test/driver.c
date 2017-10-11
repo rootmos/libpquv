@@ -15,5 +15,7 @@ int main()
     invalid_query();
     initial_drop_connection();
     initial_reject_connection();
+    subsequent_drop_connection();
+    subsequent_reject_connection();
     return 0;
 }

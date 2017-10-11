@@ -360,7 +360,7 @@ static void initial_bad_connection_timer_free_cb(uv_handle_t* handle)
     t->cleaned_up = true;
 }
 
-void initial_bad_connection(volatile bool* ok)
+static void initial_bad_connection(volatile bool* ok)
 {
     new_loop(loop);
 
@@ -398,5 +398,100 @@ void initial_reject_connection()
     test_start();
     dummy_pg_iptables_reject();
     initial_bad_connection(&ok);
+    test_done();
+}
+
+
+
+typedef struct {
+    volatile bool* ok;
+    pquv_t* pquv;
+    uv_timer_t timer;
+    bool tables_flushed;
+    bool cleaned_up;
+    void (*mk_bad)(void);
+} subsequent_bad_t;
+
+static void subsequent_bad_cb_2(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(2 == ntohl(*((uint32_t *)PQgetvalue(r, 0, 0))));
+
+    subsequent_bad_t* t = (subsequent_bad_t*)opaque;
+    *t->ok = true;
+    PQclear(r);
+}
+
+static void subsequent_bad_cb_timer(uv_timer_t* handle)
+{
+    dummy_pg_iptables_flush();
+    subsequent_bad_t* t = container_of(handle,
+                                       subsequent_bad_t,
+                                       timer);
+    t->tables_flushed = true;
+}
+
+static void subsequent_bad_cb_1(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(1 == ntohl(*((uint32_t *)PQgetvalue(r, 0, 0))));
+
+    subsequent_bad_t* t = (subsequent_bad_t*)opaque;
+    pquv_query(t->pquv, "SELECT 2", subsequent_bad_cb_2, t);
+
+    t->mk_bad();
+    PQclear(r);
+}
+
+static void subsequent_bad_cb_free_timer(uv_handle_t* handle)
+{
+    subsequent_bad_t* t = container_of(handle,
+                                       subsequent_bad_t,
+                                       timer);
+    t->cleaned_up = true;
+}
+
+static void subsequent_bad(volatile bool* ok, void (*mk_bad)(void))
+{
+    new_loop(loop);
+
+    pquv_t* pquv = pquv_init(conninfo_dummy(), &loop);
+    subsequent_bad_t t = {
+        .ok = ok,
+        .pquv = pquv,
+        .tables_flushed = false,
+        .cleaned_up = false,
+        .mk_bad = mk_bad,
+    };
+
+    assert(0 == uv_timer_init(&loop, &t.timer));
+    assert(0 == uv_timer_start(
+                    &t.timer, subsequent_bad_cb_timer,
+                    1500, 0));
+
+    pquv_query(pquv, "SELECT 1", subsequent_bad_cb_1, &t);
+
+    while (uv_run(&loop, UV_RUN_ONCE) && !*ok);
+
+    pquv_free(pquv);
+    uv_close((uv_handle_t*)&t.timer, subsequent_bad_cb_free_timer);
+    close_loop(loop);
+    assert(t.tables_flushed);
+    assert(t.cleaned_up);
+}
+
+void subsequent_drop_connection()
+{
+    test_start();
+    subsequent_bad(&ok, dummy_pg_iptables_drop);
+    test_done();
+}
+
+void subsequent_reject_connection()
+{
+    test_start();
+    subsequent_bad(&ok, dummy_pg_iptables_reject);
     test_done();
 }

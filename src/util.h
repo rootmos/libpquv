@@ -10,6 +10,18 @@
     fprintf(stderr, __VA_ARGS__); exit(1);                      \
 }
 
+#define info(...) {                                             \
+    fprintf(stderr, "%s:%d: ",                                  \
+            __extension__ __FUNCTION__,__extension__ __LINE__); \
+    fprintf(stderr, __VA_ARGS__);                               \
+}
+
+#define warn(...) {                                             \
+    fprintf(stderr, "%s:%d: ",                                  \
+            __extension__ __FUNCTION__,__extension__ __LINE__); \
+    fprintf(stderr, __VA_ARGS__);                               \
+}
+
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - offsetof(type, member)))
 
