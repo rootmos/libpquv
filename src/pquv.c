@@ -4,7 +4,6 @@
 #include <postgresql/libpq-fe.h>
 #include <uv.h>
 
-#include <assert.h> /* TODO: return proper failures */
 #include <string.h>
 #include <unistd.h>
 
@@ -72,7 +71,10 @@ static void maybe_send_req(pquv_t* pquv)
     if(pquv->live != NULL)
         return;
 
-    assert(PQstatus(pquv->conn) != CONNECTION_BAD);
+    if(PQstatus(pquv->conn) == CONNECTION_BAD) {
+        // TODO: reset connection
+        failwith("connection is bad");
+    }
 
     req_t* r = dequeue(&pquv->queue);
     if(r == NULL)
@@ -110,7 +112,8 @@ static void maybe_send_req(pquv_t* pquv)
         break;
     }
 
-    assert(PQflush(pquv->conn) >= 0);
+    if(PQflush(pquv->conn) < 0)
+        failwith("PQflush failed");
 
     pquv->live = r;
 }
@@ -186,8 +189,6 @@ static void enqueue_req(
         pquv->queue.head = r;
         pquv->queue.tail = r;
     } else {
-        assert(pquv->queue.tail);
-        assert(pquv->queue.tail->next == NULL);
         pquv->queue.tail->next = r;
         pquv->queue.tail = r;
     }
@@ -269,7 +270,8 @@ static void free_req(req_t* r) {
 
 static void poll_cb(uv_poll_t* handle, int status, int events)
 {
-    assert(status >= 0);
+    if(status < 0)
+        failwith("unexpected status %d\n", status);
 
     pquv_t* pquv = container_of(handle, pquv_t, poll);
     if (events & UV_WRITABLE) {
@@ -286,7 +288,9 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             failwith("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
 
         if(!PQisBusy(pquv->conn)) {
-            assert(pquv->live);
+            if(pquv->live == NULL)
+                failwith("received orphan result");
+
             PGresult* r = PQgetResult(pquv->conn);
 
             int res = PQresultStatus(r);
@@ -298,7 +302,8 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             pquv->live = NULL;
 
             /* TODO: handle more results */
-            assert(PQgetResult(pquv->conn) == NULL);
+            if(PQgetResult(pquv->conn) != NULL)
+                failwith("handling of more results not supported");
         } else {
             failwith("PQisBusy returned true, what to do?");
         }
@@ -337,8 +342,10 @@ static void poll_connection(pquv_t* pquv);
 
 static void connection_cb(uv_poll_t* handle, int status, int events)
 {
-    assert(status >= 0);
-    assert((events & ~(UV_READABLE | UV_WRITABLE)) == 0);
+    if(status < 0)
+        failwith("unexpected status %d\n", status);
+    if((events & ~(UV_READABLE | UV_WRITABLE)) != 0)
+        failwith("received unexpcted event: %d\n", events);
     pquv_t* pquv = container_of(handle, pquv_t, poll);
     poll_connection(pquv);
 }
@@ -349,29 +356,36 @@ static void start_connection(pquv_t* pquv);
 static void start_connection_close_poll_cb(uv_handle_t* h)
 {
     pquv_t* pquv = container_of(h, pquv_t, poll);
-    assert(0 == close(pquv->fd));
+
+    if(0 != close(pquv->fd))
+        failwith("unable to close fd %d\n", pquv->fd);
+
     PQfinish(pquv->conn);
     pquv->fd = -1;
     pquv->state = PQUV_NEW;
+
     start_connection(pquv);
 }
 
 static void start_connection(pquv_t* pquv)
 {
     if(pquv->fd >= 0) {
-        assert(0 == uv_poll_stop(&pquv->poll));
+        if(uv_poll_stop(&pquv->poll) != 0)
+            failwith("uv_poll_stop failed");
         uv_close((uv_handle_t*)&pquv->poll, start_connection_close_poll_cb);
         return;
     }
 
-    assert(pquv->state == PQUV_NEW);
-
     pquv->conn = PQconnectStart(pquv->conninfo);
-    assert(pquv->conn);
-    assert(PQstatus(pquv->conn) != CONNECTION_BAD);
+    if(pquv->conn == NULL)
+        failwith("PQconnectStart failed");
+
+    if(PQstatus(pquv->conn) == CONNECTION_BAD)
+        failwith("connection is bad");
 
     int fd = PQsocket(pquv->conn);
-    assert(fd >= 0);
+    if(fd < 0)
+        failwith("PQsocket failed");
 
     /*
      * From libuv documentation:
@@ -394,7 +408,8 @@ static void start_connection(pquv_t* pquv)
      */
 
     pquv->fd = fcntl(fd, F_DUPFD_CLOEXEC, 0);
-    assert(pquv->fd >= 0);
+    if(pquv->fd < 0)
+        failwith("unable to dup fd %d: %s\n", fd, strerror(errno));
 
     int r;
     if((r = uv_poll_init(pquv->loop, &pquv->poll, pquv->fd)) != 0)
@@ -411,7 +426,8 @@ static void reconnect_timer_cb(uv_timer_t* h)
 
     switch(pquv->state) {
     case PQUV_BAD_RESET:
-        assert(0 == PQresetStart(pquv->conn));
+        if(0 != PQresetStart(pquv->conn))
+            failwith("PQresetStart failed");
         pquv->state = PQUV_RESETTING;
         poll_connection(pquv);
         break;
@@ -467,11 +483,13 @@ static void poll_connection(pquv_t* pquv)
             failwith("unexpected state: %d\n", pquv->state);
         }
 
-        assert(0 == uv_timer_start(
-                        &pquv->reconnect_timer,
-                        reconnect_timer_cb,
-                        pquv->reconnect_timer_ms,
-                        0));
+        r = uv_timer_start(
+                &pquv->reconnect_timer,
+                reconnect_timer_cb,
+                pquv->reconnect_timer_ms,
+                0);
+        if (r != 0)
+            failwith("uv_timer_start: %s\n", uv_strerror(r));
         return;
     default:
         failwith("PQconnectPoll unexpected status\n");
@@ -484,7 +502,7 @@ static void poll_connection(pquv_t* pquv)
 pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
 {
     pquv_t* pquv = malloc(sizeof(pquv_t));
-    assert(pquv);
+    if(pquv == NULL) failwith("malloc NULL:ed");
     pquv->loop = loop;
     pquv->conninfo = strndup(conninfo, MAX_CONNINFO_LENGTH);
     pquv->queue.head = NULL;
@@ -507,7 +525,8 @@ static void pquv_free_close_poll_cb(uv_handle_t* h)
 {
     pquv_t* pquv = container_of(h, pquv_t, poll);
 
-    assert(0 == close(pquv->fd));
+    if(close(pquv->fd) != 0)
+        failwith("unable to close fd %d: %s\n", pquv->fd, strerror(errno));
 
     PQfinish(pquv->conn);
 
@@ -529,7 +548,9 @@ static void pquv_free_close_poll_cb(uv_handle_t* h)
 static void pquv_close_timer_cb(uv_handle_t* h)
 {
     pquv_t* pquv = container_of(h, pquv_t, reconnect_timer);
-    assert(0 == uv_poll_stop(&pquv->poll));
+    int r;
+    if((r = uv_poll_stop(&pquv->poll)) != 0)
+       failwith("uv_poll_stop: %s\n", uv_strerror(r));
     uv_close((uv_handle_t*)&pquv->poll, pquv_free_close_poll_cb);
 }
 
