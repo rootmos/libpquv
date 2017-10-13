@@ -7,12 +7,6 @@
 
 #include <postgresql/libpq-fe.h>
 
-#define panic(...) {                                            \
-    fprintf(stderr, "%s:%d: ",                                  \
-            __extension__ __FUNCTION__,__extension__ __LINE__); \
-    fprintf(stderr, __VA_ARGS__); exit(1);                      \
-}
-
 #define info(...) { fprintf(stdout, __VA_ARGS__); exit(1); }
 
 #define test_start() \
@@ -22,27 +16,22 @@
 
 #define some(x) char x[100]; snprintf(x, sizeof(x), #x "%.5u", rand() % 1000);
 
-#define exec_and_expect_ok(conn, ...)                                       \
-{                                                                           \
-    char q[1024];                                                           \
-    snprintf(q, 1024, __VA_ARGS__);                                         \
-    PGresult* r = PQexec(conn, q);                                          \
-    if(PQresultStatus(r) != PGRES_COMMAND_OK) {                             \
-        panic("error while executing %s:%s\n", q, PQresultErrorMessage(r)); \
-    }                                                                       \
-    PQclear(r);                                                             \
+#define exec_and_expect_ok(conn, ...)                                          \
+{                                                                              \
+    char q[1024];                                                              \
+    snprintf(q, 1024, __VA_ARGS__);                                            \
+    PGresult* r = PQexec(conn, q);                                             \
+    assert(PQresultStatus(r) == PGRES_COMMAND_OK);                             \
+    PQclear(r);                                                                \
 }
 
-#define exec_and_expect(conn, e, ...)                                       \
-{                                                                           \
-    char q[1024];                                                           \
-    snprintf(q, 1024, __VA_ARGS__);                                         \
-    PGresult* r = PQexec(conn, q);                                          \
-    if(PQresultStatus(r) != PGRES_TUPLES_OK) {                              \
-        panic("error while executing %s:%s\n", q, PQresultErrorMessage(r)); \
-    }                                                                       \
-    e                                                                       \
-    PQclear(r);                                                             \
+#define exec_and_expect(conn, e, ...)                                          \
+{                                                                              \
+    char q[1024];                                                              \
+    snprintf(q, 1024, __VA_ARGS__);                                            \
+    PGresult* r = PQexec(conn, q);                                             \
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);                              \
+    PQclear(r);                                                                \
 }
 
 const char* conninfo();

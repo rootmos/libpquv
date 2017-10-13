@@ -88,7 +88,7 @@ static void maybe_send_req(pquv_t* pquv)
                               r->paramLengths,
                               r->paramFormats,
                               1))
-            panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
+            failwith("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
         break;
     case PQUV_PREPARE_STATEMENT:
         if(!PQsendPrepare(pquv->conn,
@@ -96,7 +96,7 @@ static void maybe_send_req(pquv_t* pquv)
                           r->q,
                           r->nParams,
                           r->paramTypes))
-            panic("PQSendPerpare: %s\n", PQerrorMessage(pquv->conn));
+            failwith("PQSendPerpare: %s\n", PQerrorMessage(pquv->conn));
         break;
     case PQUV_PREPARED_STATEMENT:
         if(!PQsendQueryPrepared(pquv->conn,
@@ -106,7 +106,7 @@ static void maybe_send_req(pquv_t* pquv)
                                 r->paramLengths,
                                 r->paramFormats,
                                 1))
-            panic("PQsendQueryPrepared: %s\n", PQerrorMessage(pquv->conn));
+            failwith("PQsendQueryPrepared: %s\n", PQerrorMessage(pquv->conn));
         break;
     }
 
@@ -275,7 +275,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
     if (events & UV_WRITABLE) {
         int r = PQflush(pquv->conn);
         if (r < 0) {
-            panic("PQflush failed");
+            failwith("PQflush failed");
         } else if (r == 0) {
             maybe_send_req(pquv);
         }
@@ -283,7 +283,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
 
     if (events & UV_READABLE) {
         if(!PQconsumeInput(pquv->conn))
-            panic("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
+            failwith("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
 
         if(!PQisBusy(pquv->conn)) {
             assert(pquv->live);
@@ -300,7 +300,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             /* TODO: handle more results */
             assert(PQgetResult(pquv->conn) == NULL);
         } else {
-            panic("PQisBusy returned true, what to do?");
+            failwith("PQisBusy returned true, what to do?");
         }
     }
 
@@ -398,7 +398,7 @@ static void start_connection(pquv_t* pquv)
 
     int r;
     if((r = uv_poll_init(pquv->loop, &pquv->poll, pquv->fd)) != 0)
-        panic("uv_poll_init: %s\n", uv_strerror(r));
+        failwith("uv_poll_init: %s\n", uv_strerror(r));
 
     pquv->state = PQUV_CONNECTING;
 
@@ -419,7 +419,7 @@ static void reconnect_timer_cb(uv_timer_t* h)
         start_connection(pquv);
         break;
     default:
-        panic("unexpected state: %d\n", pquv->state);
+        failwith("unexpected state: %d\n", pquv->state);
     }
 }
 
@@ -438,7 +438,7 @@ static void poll_connection(pquv_t* pquv)
         r = PQresetPoll(pquv->conn);
         break;
     default:
-        panic("unexpected state: %d\n", pquv->state);
+        failwith("unexpected state: %d\n", pquv->state);
     }
 
     switch(r) {
@@ -464,7 +464,7 @@ static void poll_connection(pquv_t* pquv)
             pquv->state = PQUV_BAD_RESET;
             break;
         default:
-            panic("unexpected state: %d\n", pquv->state);
+            failwith("unexpected state: %d\n", pquv->state);
         }
 
         assert(0 == uv_timer_start(
@@ -474,11 +474,11 @@ static void poll_connection(pquv_t* pquv)
                         0));
         return;
     default:
-        panic("PQconnectPoll unexpected status\n");
+        failwith("PQconnectPoll unexpected status\n");
     }
 
     if((r = uv_poll_start(&pquv->poll, events, cb)) != 0)
-        panic("uv_poll_start: %s\n", uv_strerror(r));
+        failwith("uv_poll_start: %s\n", uv_strerror(r));
 }
 
 pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
@@ -496,7 +496,7 @@ pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
 
     int r;
     if((r = uv_timer_init(loop, &pquv->reconnect_timer)) != 0)
-        panic("uv_timer_init: %s\n", uv_strerror(r));
+        failwith("uv_timer_init: %s\n", uv_strerror(r));
 
     start_connection(pquv);
 

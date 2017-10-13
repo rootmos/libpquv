@@ -426,9 +426,7 @@ static void subsequent_bad_cb_2(void* opaque, PGresult* r)
 static void subsequent_bad_cb_timer(uv_timer_t* handle)
 {
     dummy_pg_iptables_flush();
-    subsequent_bad_t* t = container_of(handle,
-                                       subsequent_bad_t,
-                                       timer);
+    subsequent_bad_t* t = container_of(handle, subsequent_bad_t, timer);
     t->tables_flushed = true;
 }
 
@@ -447,9 +445,7 @@ static void subsequent_bad_cb_1(void* opaque, PGresult* r)
 
 static void subsequent_bad_cb_free_timer(uv_handle_t* handle)
 {
-    subsequent_bad_t* t = container_of(handle,
-                                       subsequent_bad_t,
-                                       timer);
+    subsequent_bad_t* t = container_of(handle, subsequent_bad_t, timer);
     t->cleaned_up = true;
 }
 

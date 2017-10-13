@@ -4,15 +4,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define panic(...) {                                            \
-    fprintf(stderr, "%s:%d: ",                                  \
-            __extension__ __FUNCTION__,__extension__ __LINE__); \
-    fprintf(stderr, __VA_ARGS__); exit(1);                      \
-}
+#define failwith(...) __failwith(__extension__ __FUNCTION__, __extension__ __LINE__, __VA_ARGS__)
+
+void __failwith(const char* caller, int line, const char* fmt, ...)
+    __attribute__ ((noreturn));
 
 #define info(...) {                                             \
-    fprintf(stderr, "%s:%d: ",                                  \
-            __extension__ __FUNCTION__,__extension__ __LINE__); \
+    fprintf(stderr, "%s:%d: ", __extension__ __LINE__);         \
     fprintf(stderr, __VA_ARGS__);                               \
 }
 
