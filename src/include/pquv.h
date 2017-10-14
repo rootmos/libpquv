@@ -1,5 +1,4 @@
-#ifndef pquv_h
-#define pquv_h
+#pragma once
 
 #include <uv.h>
 #include <postgresql/libpq-fe.h>
@@ -64,5 +63,3 @@ static inline void pquv_query(
 {
     pquv_query_params(pquv, q, 0, NULL, NULL, NULL, NULL, cb, opaque, 0);
 }
-
-#endif

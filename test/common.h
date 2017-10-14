@@ -1,5 +1,4 @@
-#ifndef common_h
-#define common_h
+#pragma once
 
 #include <assert.h>
 #include <stdlib.h>
@@ -54,5 +53,3 @@ void dummy_pg_iptables_flush();
 
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - offsetof(type, member)))
-
-#endif

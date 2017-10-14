@@ -1,5 +1,4 @@
-#ifndef test_cases_h
-#define test_cases_h
+#pragma once
 
 void sanity_check();
 
@@ -13,5 +12,3 @@ void initial_drop_connection();
 void initial_reject_connection();
 void subsequent_reject_connection();
 void subsequent_drop_connection();
-
-#endif

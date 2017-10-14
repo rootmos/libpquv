@@ -132,7 +132,7 @@ static void enqueue_req(
         void* opaque,
         uint32_t flags)
 {
-    req_t* r = malloc(sizeof(pquv_t));
+    req_t* r = malloc(sizeof(*r));
     r->flags = flags;
     r->kind = kind;
     r->nParams = nParams;
@@ -501,8 +501,9 @@ static void poll_connection(pquv_t* pquv)
 
 pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
 {
-    pquv_t* pquv = malloc(sizeof(pquv_t));
+    pquv_t* pquv = malloc(sizeof(*pquv));
     if(pquv == NULL) failwith("malloc NULL:ed");
+
     pquv->loop = loop;
     pquv->conninfo = strndup(conninfo, MAX_CONNINFO_LENGTH);
     pquv->queue.head = NULL;
