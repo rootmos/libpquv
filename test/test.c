@@ -491,3 +491,70 @@ void subsequent_reject_connection()
     subsequent_bad(&ok, dummy_pg_iptables_reject);
     test_done();
 }
+
+
+typedef struct {
+    pquv_t* pquv;
+    volatile bool* ok;
+    bool cleaned_up;
+    uv_timer_t timer;
+} idle_t;
+
+static void idle_cb_2(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(2 == ntohl(*((uint32_t *)PQgetvalue(r, 0, 0))));
+    PQclear(r);
+
+    idle_t* t = (idle_t*)opaque;
+    *t->ok = true;
+}
+
+static void idle_timer_cb(uv_timer_t* handle)
+{
+    idle_t* t = container_of(handle, idle_t, timer);
+    pquv_query(t->pquv, "SELECT 2", idle_cb_2, t);
+}
+
+static void idle_cb_1(void* opaque, PGresult* r)
+{
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(1 == ntohl(*((uint32_t *)PQgetvalue(r, 0, 0))));
+    PQclear(r);
+
+    idle_t* t = (idle_t*)opaque;
+    assert(0 == uv_timer_start(&t->timer, idle_timer_cb, 1000, 0));
+}
+
+static void idle_timer_free_cb(uv_handle_t* handle)
+{
+    idle_t* t = container_of(handle, idle_t, timer);
+    t->cleaned_up = true;
+}
+
+void idle()
+{
+    test_start();
+    new_loop(loop);
+
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
+
+    idle_t t = {
+        .pquv = pquv,
+        .ok = &ok,
+        .cleaned_up = false,
+    };
+    assert(0 == uv_timer_init(&loop, &t.timer));
+
+    pquv_query(pquv, "SELECT 1", idle_cb_1, &t);
+
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
+
+    pquv_free(pquv);
+    uv_close((uv_handle_t*)&t.timer, idle_timer_free_cb);
+    close_loop(loop);
+    assert(t.cleaned_up);
+    test_done();
+}

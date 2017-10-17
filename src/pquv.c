@@ -6,6 +6,7 @@
 
 #include <string.h>
 #include <unistd.h>
+#include <stdbool.h>
 
 enum pquv_req_kind_t {
     PQUV_NORMAL_STATEMENT = 0,
@@ -53,6 +54,7 @@ struct pquv_st {
     req_t* live;
     queue_t queue;
     int fd;
+    int eventmask;
 };
 
 static req_t* dequeue(queue_t* queue)
@@ -66,10 +68,22 @@ static req_t* dequeue(queue_t* queue)
     return t;
 }
 
-static void maybe_send_req(pquv_t* pquv)
+static void poll_cb(uv_poll_t* handle, int status, int events);
+
+static void update_poll_eventmask(pquv_t* pquv, int eventmask)
+{
+    if(pquv->eventmask != eventmask) {
+        int r = uv_poll_start(&pquv->poll, eventmask, poll_cb);
+        if(r != 0)
+            failwith("uv_poll_start: %s\n", uv_strerror(r));
+        pquv->eventmask = eventmask;
+    }
+}
+
+static bool maybe_send_req(pquv_t* pquv)
 {
     if(pquv->live != NULL)
-        return;
+        return false;
 
     if(PQstatus(pquv->conn) == CONNECTION_BAD) {
         // TODO: reset connection
@@ -78,7 +92,7 @@ static void maybe_send_req(pquv_t* pquv)
 
     req_t* r = dequeue(&pquv->queue);
     if(r == NULL)
-        return;
+        return false;
 
     switch(r->kind) {
     case PQUV_NORMAL_STATEMENT:
@@ -112,18 +126,8 @@ static void maybe_send_req(pquv_t* pquv)
         break;
     }
 
-    int i = PQflush(pquv->conn);
-    if (i == -1) {
-        failwith("PQflush failed");
-    } else if (i == 0) {
-        /* noop */
-    } else if (i == 1) {
-        warn("PQflush(..) == 1\n");
-    } else {
-        failwith("PQflush unexpected return code: %d\n", i);
-    }
-
     pquv->live = r;
+    return true;
 }
 
 static void enqueue_req(
@@ -199,6 +203,10 @@ static void enqueue_req(
     } else {
         pquv->queue.tail->next = r;
         pquv->queue.tail = r;
+    }
+
+    if(pquv->state == PQUV_CONNECTED && pquv->live == NULL) {
+        update_poll_eventmask(pquv, pquv->eventmask | UV_WRITABLE);
     }
 }
 
@@ -282,15 +290,27 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
         failwith("unexpected status %d\n", status);
 
     pquv_t* pquv = container_of(handle, pquv_t, poll);
+
+    int eventmask = pquv->eventmask;
+
     if (events & UV_WRITABLE) {
         int r = PQflush(pquv->conn);
+        if (r == 0) {
+            if(maybe_send_req(pquv)) {
+                r = PQflush(pquv->conn);
+                if (r == 0) {
+                    eventmask &= ~UV_WRITABLE;
+                }
+            } else {
+                eventmask &= ~UV_WRITABLE;
+            }
+        }
+
         if (r == -1) {
-            failwith("PQflush failed");
-        } else if (r == 0) {
-            maybe_send_req(pquv);
+            failwith("PQflush failed\n");
         } else if (r == 1) {
-            warn("PQflush(..) == 1\n");
-        } else {
+            eventmask |= UV_READABLE | UV_WRITABLE;
+        } else if (r != 0) {
             failwith("PQflush unexpected return code: %d\n", r);
         }
     }
@@ -316,13 +336,20 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             /* TODO: handle more results */
             if(PQgetResult(pquv->conn) != NULL)
                 failwith("handling of more results not supported\n");
+
+            /* if we have enqueued reqs, wait for writeable state */
+            if (pquv->queue.head != NULL)
+                eventmask |= UV_WRITABLE;
         } else {
             failwith("PQisBusy returned true, what to do?\n");
         }
     }
 
+    update_poll_eventmask(pquv, eventmask);
+
     return;
 }
+
 
 /* Non-blocking connection request
  *
@@ -480,7 +507,7 @@ static void poll_connection(pquv_t* pquv)
         break;
     case PGRES_POLLING_OK:
         pquv->state = PQUV_CONNECTED;
-        events = UV_WRITABLE | UV_READABLE;
+        pquv->eventmask = events = UV_WRITABLE | UV_READABLE;
         cb = poll_cb;
         break;
     case PGRES_POLLING_FAILED:
@@ -523,6 +550,7 @@ pquv_t* pquv_init(const char* conninfo, uv_loop_t* loop)
     pquv->reconnect_timer_ms = 1000;
     pquv->state = PQUV_NEW;
     pquv->fd = -1;
+    pquv->eventmask = 0;
     pquv->live = NULL;
 
     int r;

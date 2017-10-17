@@ -17,5 +17,6 @@ int main()
     initial_reject_connection();
     subsequent_drop_connection();
     subsequent_reject_connection();
+    idle();
     return 0;
 }
