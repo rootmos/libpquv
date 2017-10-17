@@ -55,7 +55,7 @@ struct pquv_st {
     int fd;
 };
 
-req_t* dequeue(queue_t* queue)
+static req_t* dequeue(queue_t* queue)
 {
     if (queue->head == NULL)
         return NULL;
@@ -112,8 +112,16 @@ static void maybe_send_req(pquv_t* pquv)
         break;
     }
 
-    if(PQflush(pquv->conn) < 0)
+    int i = PQflush(pquv->conn);
+    if (i == -1) {
         failwith("PQflush failed");
+    } else if (i == 0) {
+        /* noop */
+    } else if (i == 1) {
+        warn("PQflush(..) == 1\n");
+    } else {
+        failwith("PQflush unexpected return code: %d\n", i);
+    }
 
     pquv->live = r;
 }
@@ -276,10 +284,14 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
     pquv_t* pquv = container_of(handle, pquv_t, poll);
     if (events & UV_WRITABLE) {
         int r = PQflush(pquv->conn);
-        if (r < 0) {
+        if (r == -1) {
             failwith("PQflush failed");
         } else if (r == 0) {
             maybe_send_req(pquv);
+        } else if (r == 1) {
+            warn("PQflush(..) == 1\n");
+        } else {
+            failwith("PQflush unexpected return code: %d\n", r);
         }
     }
 
@@ -289,7 +301,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
 
         if(!PQisBusy(pquv->conn)) {
             if(pquv->live == NULL)
-                failwith("received orphan result");
+                failwith("received orphan result\n");
 
             PGresult* r = PQgetResult(pquv->conn);
 
@@ -303,9 +315,9 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
 
             /* TODO: handle more results */
             if(PQgetResult(pquv->conn) != NULL)
-                failwith("handling of more results not supported");
+                failwith("handling of more results not supported\n");
         } else {
-            failwith("PQisBusy returned true, what to do?");
+            failwith("PQisBusy returned true, what to do?\n");
         }
     }
 

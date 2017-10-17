@@ -15,7 +15,7 @@ const char* conninfo_dummy()
 
 void fresh_table(PGconn* conn, char* tbl, size_t n)
 {
-    assert(8 == snprintf(tbl, n, "tbl%.5u", rand() % 10000));
+    assert(8 == snprintf(tbl, n, "tbl%.5u", rand() % 100000));
 
     exec_and_expect_ok(conn,
             "CREATE TABLE %s (id VARCHAR(40) PRIMARY KEY, blob TEXT)", tbl);
