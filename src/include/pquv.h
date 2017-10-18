@@ -14,38 +14,42 @@ void pquv_free(pquv_t* pquv);
 typedef void (*req_cb)(void* opaque, PGresult* res);
 
 #define MAX_QUERY_LENGTH 2048
+#define MAX_NAME_LENGTH 512
+
+/* pre-condition: the pointers contained in the `paramValues`
+ * array are assumed to be valid until the call to `cb`,
+ * the actual array however needs only to be valid until the
+ * return of the corresponding function call.
+ */
+
 void pquv_query_params(
         pquv_t* pquv,
         const char* q,
         int nParams,
-        const Oid *paramTypes,
-        const char * const *paramValues,
-        const int *paramLengths,
-        const int *paramFormats,
-        req_cb cb,
-        void* opaque,
+        const Oid* paramTypes,
+        const char* const* paramValues,
+        const int* paramLengths,
+        const int* paramFormats,
+        req_cb cb, void* opaque,
         uint32_t flags);
 
-#define MAX_NAME_LENGTH 512
 void pquv_prepare(
         pquv_t* pquv,
         const char* q,
         const char* name,
         int nParams,
-        const Oid *paramTypes,
-        req_cb cb,
-        void* opaque,
+        const Oid* paramTypes,
+        req_cb cb, void* opaque,
         uint32_t flags);
 
 void pquv_prepared(
         pquv_t* pquv,
         const char* name,
         int nParams,
-        const char * const *paramValues,
-        const int *paramLengths,
-        const int *paramFormats,
-        req_cb cb,
-        void* opaque,
+        const char* const* paramValues,
+        const int* paramLengths,
+        const int* paramFormats,
+        req_cb cb, void* opaque,
         uint32_t flags);
 
 /* the query string given to `pquv_query_params` is guaranteed to be accessible
@@ -58,8 +62,7 @@ void pquv_prepared(
 static inline void pquv_query(
         pquv_t* pquv,
         const char* q,
-        req_cb cb,
-        void* opaque)
+        req_cb cb, void* opaque)
 {
     pquv_query_params(pquv, q, 0, NULL, NULL, NULL, NULL, cb, opaque, 0);
 }
