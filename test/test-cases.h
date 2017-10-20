@@ -13,3 +13,4 @@ void initial_reject_connection();
 void subsequent_reject_connection();
 void subsequent_drop_connection();
 void idle();
+void large_write_and_read();

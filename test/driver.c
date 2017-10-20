@@ -18,5 +18,6 @@ int main()
     subsequent_drop_connection();
     subsequent_reject_connection();
     idle();
+    large_write_and_read();
     return 0;
 }

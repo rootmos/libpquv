@@ -320,8 +320,7 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             failwith("PQsendQuery: %s\n", PQerrorMessage(pquv->conn));
 
         if(!PQisBusy(pquv->conn)) {
-            if(pquv->live == NULL)
-                failwith("received orphan result\n");
+            if(pquv->live == NULL) failwith("received orphan result\n");
 
             PGresult* r = PQgetResult(pquv->conn);
 
@@ -341,13 +340,11 @@ static void poll_cb(uv_poll_t* handle, int status, int events)
             if (pquv->queue.head != NULL)
                 eventmask |= UV_WRITABLE;
         } else {
-            failwith("PQisBusy returned true, what to do?\n");
+            /* noop */
         }
     }
 
     update_poll_eventmask(pquv, eventmask);
-
-    return;
 }
 
 

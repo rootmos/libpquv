@@ -84,7 +84,7 @@ void parametrized_query()
     char q[MAX_QUERY_LENGTH];
     snprintf(q, MAX_QUERY_LENGTH, "SELECT blob FROM %s WHERE id = $1", tbl);
 
-    const char* values[1]; values[0] = key;
+    const char* values[] = { key };
     pquv_query_params(pquv, q, 1, NULL, values, NULL, NULL,
                       parametrized_query_cb, &t,
                       PQUV_NON_VOLATILE_QUERY_STRING);
@@ -556,5 +556,82 @@ void idle()
     uv_close((uv_handle_t*)&t.timer, idle_timer_free_cb);
     close_loop(loop);
     assert(t.cleaned_up);
+    test_done();
+}
+
+typedef struct {
+    const char* tbl;
+    const char* key;
+    pquv_t* pquv;
+    volatile bool* ok;
+    const void* data;
+    size_t len;
+} large_write_and_read_t;
+
+static void large_write_and_read_cb_2(void* opaque, PGresult* r)
+{
+    large_write_and_read_t* t = (large_write_and_read_t*)opaque;
+
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+    assert(memcmp(PQgetvalue(r, 0, 0), t->data, t->len) == 0);
+
+    *t->ok = true;
+    PQclear(r);
+}
+
+static void large_write_and_read_cb_1(void* opaque, PGresult* r)
+{
+    large_write_and_read_t* t = (large_write_and_read_t*)opaque;
+
+    assert(PQresultStatus(r) == PGRES_COMMAND_OK);
+
+    char q[MAX_QUERY_LENGTH];
+    snprintf(q, MAX_QUERY_LENGTH,
+             "SELECT blob FROM %s WHERE id = '%s'", t->tbl, t->key);
+
+    pquv_query(t->pquv, q, large_write_and_read_cb_2, t);
+
+    PQclear(r);
+}
+
+void large_write_and_read()
+{
+    test_start();
+    PGconn* conn = connect_blk();
+
+    some(key); fresh_bytea(tbl);
+    size_t n = 1000000; void* data = random_blob(n);
+
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
+
+    large_write_and_read_t t = {
+        .tbl = tbl,
+        .key = key,
+        .pquv = pquv,
+        .ok = &ok,
+        .data = data,
+        .len = n
+    };
+
+    char q[MAX_QUERY_LENGTH];
+    snprintf(q, MAX_QUERY_LENGTH,
+             "INSERT INTO %s (id, blob) VALUES ($1, $2)", tbl);
+
+    const char* values[] = { key, data };
+    const int lengths[] = { 0, n };
+    const int formats[] = { 0, 1 };
+
+    pquv_query_params(pquv, q,
+                      2, NULL, values, lengths, formats,
+                      large_write_and_read_cb_1, &t,
+                      0);
+
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
+
+    pquv_free(pquv);
+    close_loop(loop);
+    free(data);
     test_done();
 }

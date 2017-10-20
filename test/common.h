@@ -37,15 +37,16 @@ const char* conninfo();
 const char* conninfo_dummy();
 PGconn* connect_blk();
 
-void fresh_table(PGconn* conn, char* tbl, size_t n);
+void fresh_table(PGconn* conn, char* tbl, size_t n, const char* type);
 
-#define fresh(t) char t[8]; fresh_table(conn, t, sizeof(t));
+#define fresh(t) char t[8]; fresh_table(conn, t, sizeof(t), "TEXT");
+#define fresh_bytea(t) char t[8]; fresh_table(conn, t, sizeof(t), "BYTEA");
 
 #define new_loop(l) uv_loop_t l; assert(uv_loop_init(&l) == 0);
-#define close_loop(l) { \
+#define close_loop(l) do { \
     assert(uv_run(&l, UV_RUN_DEFAULT) == 0); \
     assert(uv_loop_close(&l) == 0); \
-}
+} while(0)
 
 void dummy_pg_iptables_drop();
 void dummy_pg_iptables_reject();
@@ -53,3 +54,5 @@ void dummy_pg_iptables_flush();
 
 #define container_of(ptr, type, member) \
     ((type *)((char *)(ptr) - offsetof(type, member)))
+
+void* random_blob(size_t n);
