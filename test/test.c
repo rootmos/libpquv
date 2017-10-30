@@ -635,3 +635,74 @@ void large_write_and_read()
     free(data);
     test_done();
 }
+
+typedef struct {
+    volatile bool* ok;
+} timestamp_read_t;
+
+static void timestamp_read_cb(void* opaque, PGresult* r)
+{
+    timestamp_read_t* t = (timestamp_read_t*)opaque;
+
+    assert(PQresultStatus(r) == PGRES_TUPLES_OK);
+    assert(PQntuples(r) == 1);
+
+    /* 2007-10-19 10:23:54+02 */
+
+    int64_t timestamp1 = __builtin_bswap64(*((uint64_t*)PQgetvalue(r, 0, 0)));
+
+    int64_t seconds = 1000000, hours = 3600*seconds,
+            day = 24*hours, year = 365*day;
+
+    int64_t expected1 =
+        7*year + 1*day /* 2000's leap-day */
+        + (31 + 29 + 31 + 30 + 31 + 30 + 31 + 31 + 30)*day
+        + 18*day
+        + 8*hours
+        + 23*60*seconds
+        + 54*seconds
+        /* NB. no leap second! */
+        ;
+
+    assert(timestamp1 == expected1);
+
+
+    /* 1999-02-17 10:23:54-02 */
+
+    int64_t timestamp2 = __builtin_bswap64(*((uint64_t*)PQgetvalue(r, 0, 1)));
+
+    int64_t expected2 =
+        -1*year
+        + 31*day /* january */
+        + 16*day
+        + 12*hours
+        + 23*60*seconds
+        + 54*seconds;
+
+    assert(timestamp2 == expected2);
+
+    *t->ok = true;
+    PQclear(r);
+}
+
+void timestamp_read()
+{
+    test_start();
+
+    new_loop(loop);
+    pquv_t* pquv = pquv_init(conninfo(), &loop);
+
+    timestamp_read_t t = {.ok = &ok };
+
+    pquv_query(
+            pquv,
+            "SELECT (TIMESTAMP WITH TIME ZONE '2007-10-19 10:23:54+02'),"
+            " (TIMESTAMP WITH TIME ZONE '1999-02-17 10:23:54-02')",
+            timestamp_read_cb, &t);
+
+    while (uv_run(&loop, UV_RUN_ONCE) && !ok);
+
+    pquv_free(pquv);
+    close_loop(loop);
+    test_done();
+}
