@@ -1,7 +1,7 @@
 #pragma once
 
 #include <uv.h>
-#include <postgresql/libpq-fe.h>
+#include <libpq-fe.h>
 
 #ifdef __cplusplus
 extern "C" {

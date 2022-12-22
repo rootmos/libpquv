@@ -1,7 +1,7 @@
 #include <pquv.h>
 #include "util.h"
 
-#include <postgresql/libpq-fe.h>
+#include <libpq-fe.h>
 #include <uv.h>
 
 #include <string.h>
