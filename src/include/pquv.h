@@ -1,7 +1,11 @@
 #pragma once
 
 #include <uv.h>
-#include <postgresql/libpq-fe.h>
+#include <libpq-fe.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct pquv_st;
 typedef struct pquv_st pquv_t;
@@ -66,3 +70,7 @@ static inline void pquv_query(
 {
     pquv_query_params(pquv, q, 0, NULL, NULL, NULL, NULL, cb, opaque, 0);
 }
+
+#ifdef __cplusplus
+}
+#endif

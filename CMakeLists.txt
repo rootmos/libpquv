@@ -3,6 +3,10 @@ project(libpquv C)
 
 add_compile_options(-pedantic -Wall -Wextra)
 
+find_package(PostgreSQL REQUIRED)
+
 add_subdirectory(src)
 enable_testing()
 add_subdirectory(test)
+
+install(FILES libpquv-config.cmake DESTINATION share/libpquv)
